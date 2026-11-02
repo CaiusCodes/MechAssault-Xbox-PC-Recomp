@@ -27,3 +27,8 @@ D3DDevice_LightEnable              = 0x264E10  # ret 8; calls SetLight 0x264C30 
 CDirectSoundStream_SetMixBinVolumes = 0x2930C6  # ret 8
 
 [data]
+
+# True widescreen: widen the camera between D3DXMatrixPerspectiveFovLH and SetTransform (src/game/widescreen.cpp)
+[[hook]]
+at = 0x39209
+call = "MechAssaultWidenProjection"

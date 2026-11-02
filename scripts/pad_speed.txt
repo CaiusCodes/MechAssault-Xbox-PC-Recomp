@@ -1,0 +1,13 @@
+# title -> profile -> briefing -> select 'Mech -> Launch Mission 1, then walk, turn and fire
+14 start 200
+18 a 200
+22 a 200
+30 a 200
+34 start 200
+38 a 200
+45 a 200
+52 a 200
+58 a 200
+70 ly 4000 32767
+74.5 rx 1000 32767
+77 dump
