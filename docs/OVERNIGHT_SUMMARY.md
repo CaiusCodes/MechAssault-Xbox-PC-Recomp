@@ -70,8 +70,8 @@ cadence needs 60/120 Hz or VRR (the menu says so). `docs/GRAPHICS_AND_PERFORMANC
 
 Working: Breakdown's F1 menu (also Back+Start on a controller) titled for MechAssault, with Display (mode,
 resolution, aspect, brightness, V-Sync, frame cap, refresh), Rendering (render scale, anisotropic, AA, upscaling,
-FSR sharpening), Performance (overlay, frame log) and Controls (mouse aim, sensitivity, invert, every key and mouse
-button). Display changes now ask "Keep these display settings?" and revert after 15 s. All settings apply without a
+FSR sharpening), Performance (overlay, frame log), Gameplay (field of view 80-130%) and Controls (mouse aim,
+sensitivity, invert, every key and mouse button). Display changes now ask "Keep these display settings?" and revert after 15 s. All settings apply without a
 restart; changing them in the middle of a mission was verified (`scripts\pad_live_settings.txt`).
 
 ## 9. Significant bugs fixed

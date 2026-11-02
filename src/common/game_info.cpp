@@ -2,6 +2,8 @@
 #include "core/game_import.h"
 #include "core/input.h"
 
+#include <imgui.h>
+
 namespace mechassault {
 void KeyboardPad(int port, input::Pad& pad);
 void LoadBindings(const void* table);
@@ -16,11 +18,23 @@ extern bool g_mouse_aim;
 extern uint32_t g_mouse_sensitivity;
 const gameimport::Profile& Profile();  // src/common/profile.cpp
 extern bool g_mouse_invert_y;
+extern uint32_t g_fov_percent;  // src/game/widescreen.cpp
 }
 
 namespace {
 
-void GameMenu() { mechassault::MouseMenu(); }
+// the F1 menu's game sections: Gameplay (field of view), then Controls
+void GameMenu() {
+    if (ImGui::CollapsingHeader("Gameplay", ImGuiTreeNodeFlags_DefaultOpen)) {
+        int fov = int(mechassault::g_fov_percent);
+        if (ImGui::SliderInt("Field of view", &fov, 80, 130, "%d%%")) {
+            mechassault::g_fov_percent = uint32_t(fov);
+            app::Save();
+        }
+        ImGui::TextDisabled("Of the game's own view, for every camera including cutscenes; 100%% is the original.");
+    }
+    mechassault::MouseMenu();
+}
 
 // keyboard and mouse buttons (rebindable), then a test script's presses when XBE_PAD_SCRIPT is set
 void Pad(int port, input::Pad& pad) {
@@ -43,7 +57,8 @@ const app::GameInfo app::kGame = {
     .images = {{"default.xbe", "MechAssault"}},
     .options = {{"mouse_aim", &mechassault::g_mouse_aim, nullptr},  // game settings kept in the settings file
                 {"mouse_sensitivity", nullptr, &mechassault::g_mouse_sensitivity},  // percent, 100 = 0.05 degrees a count
-                {"mouse_invert_y", &mechassault::g_mouse_invert_y, nullptr}},
+                {"mouse_invert_y", &mechassault::g_mouse_invert_y, nullptr},
+                {"fov_percent", nullptr, &mechassault::g_fov_percent}},  // field of view, 80-130
     .load = mechassault::LoadBindings,  // [bindings]: keys and mouse buttons (src/common/keyboard_pad.cpp)
     .save = mechassault::SaveBindings,
     .init = nullptr,

@@ -27,6 +27,8 @@ void ToggleMenu();  // app/overlay.cpp
 
 namespace mechassault {
 
+extern uint32_t g_fov_percent;  // src/game/widescreen.cpp
+
 namespace {
 
 struct Step {
@@ -116,6 +118,7 @@ void ScriptPad(int port, input::Pad& pad) {
             else if (st.key == "width") g.width = v, display = true;
             else if (st.key == "height") g.height = v, display = true;
             else if (st.key == "display_mode") g.display_mode = app::DisplayMode(v), display = true;
+            else if (st.key == "fov_percent") g_fov_percent = v;
             LOGR("pad script: set %s %u", st.key.c_str(), v);
             if (display) app::ApplyDisplay();
         }
