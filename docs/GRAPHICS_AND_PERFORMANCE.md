@@ -156,8 +156,10 @@ no crash, the mission carried on; 60 fps throughout with the worst frame 35 ms a
 
 Nothing needs a restart. Monitor selection is "the monitor the window is on". Brightness: F1 >
 Display > Brightness (50-200%), a gamma curve applied through the renderer's gamma ramp on the finished picture
-(the title's own ramp, when it sets one, is bent the same way); live. FOV: the widescreen hook is the only FOV
-change; a separate FOV slider would use the same hook but is not exposed.
+(the title's own ramp, when it sets one, is bent the same way); live. Field of view: F1 > Gameplay > Field of
+view, 80-130% of the game's own (default 100%), through the same camera hook as widescreen, so culling follows;
+live (`runs\fov_sheet.png`: 100%, 125%, 90%). It applies to every 4:3 perspective camera, cutscenes included, and
+wide values show more sky and scenery than the designers framed; nothing broke at 125% in Mission 1.
 
 ## Performance diagnostics
 
