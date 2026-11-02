@@ -19,7 +19,7 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
 | In-engine cutscenes with subtitles | yes | `runs\wide1\004` |
 | 60 fps with correct game speed | yes | GRAPHICS_AND_PERFORMANCE.md |
 | Audio | output running; levels in the log; not heard yet | see the stress run below |
-| Long play without a crash | 6.5 min of random play | "Stress run" below |
+| Long play without a crash | 6.5 min and 31 min of random play | "Stress run" below |
 | Local multiplayer (a second map: Colosseum) | yes | `runs\mp2_sheet.png` |
 | Video settings changed live mid-mission | yes | `scripts\pad_live_settings.txt`, `runs\live1` |
 | Packaged release: setup -> import -> player-side build -> play | yes (unattended test mode) | item 16 below |
@@ -125,3 +125,8 @@ jump jets and weapon changes (seed 7). Run `stress1` (390 s):
   clips at times; to be judged by ear).
 - one thing to compare with the console: in `runs\stress1\012` dark jagged silhouettes cover the right edge
   (cliff and foliage near the camera in fog); may be correct.
+
+Second run, `scripts\pad_stress30.txt` (seed 11, with an occasional A for prompts), `stress30`, 1,880 s: no crash or
+hang; all 187 ten-second windows at 60.00 fps; 1% low 56.7 fps on average; stalls only in the first 50 s (boot,
+cache, level load: worst frame 148 ms) and one 57 ms frame at 1,101 s; process memory 379 MB at 1 minute, 400 MB
+from 20 minutes to the end (no growth); 0.13-0.22 CPU cores (`runs\stress30\cpu.txt`).
