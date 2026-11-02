@@ -14,7 +14,7 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
 | Renders: logo movie (Bink) | yes | `runs\title10\000-002` |
 | Renders: title, profile select, main menu, mission select, 'Mech select (with its live 3D preview), controls screens | yes | `runs\title10\004`, `runs\m1a\009`, `runs\menu2`, `runs\menu4` |
 | Plays briefing movies | yes | `runs\title10\012` |
-| Loads a level (Mission 1, Planet Fall) | yes | `runs\m1b\012` |
+| Loads a level (the first campaign map, `Mission01.mgf`: Planet Fall, then Going Down Hard) | yes | `runs\m1b\012` |
 | Controllable gameplay: walk, turn, torso, fire, cycle weapons, jump jets | yes, by scripted XInput | `runs\m1play\037-042` (an explosion where it fired) |
 | In-engine cutscenes with subtitles | yes | `runs\wide1\004` |
 | 60 fps with correct game speed | yes | GRAPHICS_AND_PERFORMANCE.md |
@@ -63,7 +63,7 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
 15. **More of the game**: local multiplayer (Grinder, Colosseum, ATLAS) loads a second map and plays against
     attacking 'Mechs. The campaign's first unlocked missions (Planet Fall area) load; later campaign maps were not
     reached (the profile save is signed, so it cannot simply be edited to unlock them).
-16. **Packaging and first run, end to end**: `release.bat` builds `outuildelease\package\MechAssault`. A copy
+16. **Packaging and first run, end to end**: `release.bat` builds `out\build\release\package\MechAssault`. A copy
     outside OneDrive (session temp folder) with the game beside it, run with `XBE_SETUP_TEST=1` (no shortcut,
     windowed, Play pressed by itself): the setup found and checked the game (0.4 s), imported it (66 s), built the
     game code on the spot (64 files, 13 s with 16 compilers), started it, and the pad script played into Mission 1

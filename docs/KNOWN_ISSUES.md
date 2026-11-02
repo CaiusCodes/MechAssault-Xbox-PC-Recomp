@@ -31,8 +31,7 @@ game layer, "Project" = build, tools, packaging.
 | FSR 1 is an own implementation of AMD's published algorithm, not AMD's reference shader | Shared | Looks right in a 1x -> 1280x960 test; not compared pixel for pixel with `ffx_fsr1.h`. Vendoring AMD's MIT shader would make it the reference one. |
 | MSAA / SMAA not available | Shared | FXAA and render-scale supersampling are what exists. MSAA needs resolves before every render-target read; not started. |
 | Menus' full-screen backgrounds are stretched in Widescreen | Shared rule | Same rule as Breakdown: draws touching both side edges stay full width (fades and backgrounds). The menu items stay 4:3. Acceptable, or detect background quads per title later. |
-| Widescreen culling at the new edges not checked in every mission | Game | The hook widens the game's own culling matrix too, so nothing should pop at the sides; only Mission 1 and the first cutscenes were looked at. |
-| 'Mech preview in Select 'Mech (render to texture) | Game | Excluded from widening by its aspect check (not 4:3); confirm visually in Widescreen. |
+| Widescreen checked only on the first campaign map, Colosseum not in widescreen, menus, briefing, 'Mech select (its preview stays in shape) | Game | The hook widens the game's own culling matrix too, so nothing should pop at the sides; later maps not seen. |
 | 60 Hz emulated vertical blank on this 100 Hz display | Display | The game paces by time, so motion is right, but 60 fps on 100 Hz shows uneven cadence; use 60/120 Hz or VRR (the menu says so). |
 | Xbox Live, System Link, voice | Game | Untested and out of scope for now (XONLINE/XNET/XVOICE are recompiled; the SDK's XNet HLE serves System Link for other titles). |
 | Gap fill decodes some data as code (`unimplemented aaa/bound/insb...` in `analysis/xbe_recomp.log`) | Shared | Harmless unless reached; a trap would name the address. Mark the ranges as `[xbe] data_ranges` if one ever is. |

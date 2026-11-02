@@ -10,8 +10,8 @@ Guest D3D8 calls and the game's raw NV2A pushes update one console GPU state; th
 pipeline states on a render thread, translates vertex programs, register combiners and the fixed-function pipeline
 to HLSL (compiled on first use, cached on disk beside the DLL), and keeps console render targets as GPU textures. The
 picture is rendered at a multiple of the console's 640x480 (render scale), then FXAA (optional) runs on the finished
-frame, then it is scaled to the window (filtered downscale when the render is larger, bilinear when smaller), then
-the ImGui overlay.
+frame, then it is scaled to the window (filtered downscale when the render is larger; FSR 1, or bilinear, when
+smaller), then the brightness/gamma ramp, then the ImGui overlay.
 
 MechAssault specifics: nearly all draws are raw pushes the engine writes itself with fixed-function vertex formats,
 plus pretransformed (XYZRHW) 2D for the HUD and menus. Its own render targets: the 'Mech preview (256x256) and a few
@@ -53,7 +53,7 @@ Reused from Breakdown unchanged: the console's 640x480 targets are created on th
 real internal resolution change (more pixels rendered), not an upscale of a 640x480 image. Switching is live (targets
 are recreated on the next frame; the game session is untouched).
 
-Measured in Mission 1 (scripted walk, `scriptsench_scales.ps1`, 1280x960 window, 4:3):
+Measured in Mission 1 (scripted walk, `scripts\bench_scales.ps1`, 1280x960 window, 4:3):
 
 | Render scale (internal size) | AA | 60 fps cap: avg / 1% low / p99 / worst | Uncapped (V-Sync off): avg fps, frame time |
 |---|---|---|---|
@@ -108,14 +108,14 @@ algorithm, not AMD's `ffx_fsr1.h` (which this session did not download):
 - **RCAS**: sharpening on a 5-texel cross, its lobe limited so no channel leaves the neighbours' range, and reduced
   on noise.
 
-When: only when the picture is shown larger than it was rendered (render scale 1x-3x below the screen's resolution;
-Auto never upscales). F1 > Rendering > Upscaling: Bilinear or FSR 1 (default), and "FSR sharpening" 0-20 (tenths of
+When: only when the picture is shown larger than it was rendered (a fixed render scale below the screen's
+resolution, or Auto on an integrated GPU, where Auto stops at 2x). F1 > Rendering > Upscaling: Bilinear or FSR 1 (default), and "FSR sharpening" 0-20 (tenths of
 FSR's stops; 18 = FSR's usual 0.2 stops, 0 = off). Live, no restart. FXAA, when on, runs before it at the render
 size.
 
 Checked: 640x480 (1x) to 1280x960 in Mission 1: the log says "FSR 1 upscaling 640x480 to 1280x960", 60.00 fps, 1%
 low 57.3 (same as bilinear); edges visibly crisper than bilinear with no halos or ringing in a 2x zoom
-(`runssr_compare.png`: bilinear left, FSR right). Not compared against AMD's reference output, so treat it as
+(`runs\fsr_compare.png`: bilinear left, FSR right). Not compared against AMD's reference output, so treat it as
 "FSR 1 algorithm, own implementation".
 
 ## Widescreen and ultrawide
@@ -132,7 +132,7 @@ How (src/game/widescreen.cpp): every camera's projection is built in one functio
 Cameras are rebuilt 120 times a second in play (two cameras a frame at 60 fps; `XBE_PERF` logs "camera builds a
 second"), so a change applies on the next frame.
 
-21:9 verified (window 1680x720: view 1.75 times 4:3, camera x scale 1.6845 -> 0.9626; `runs\wide219 9`): wider
+21:9 verified (window 1680x720: view 1.75 times 4:3, camera x scale 1.6845 -> 0.9626; `runs\wide219\009`): wider
 view, nothing stretched, HUD at its 4:3 place in the middle. 32:9 uses the same code (WideView is clamped to 32:9),
 not looked at. Render scale Auto renders as many pixels as the picture is wide, so ultrawide stays sharp.
 
@@ -156,8 +156,8 @@ no crash, the mission carried on; 60 fps throughout with the worst frame 35 ms a
 
 Nothing needs a restart. Monitor selection is "the monitor the window is on". Brightness: F1 >
 Display > Brightness (50-200%), a gamma curve applied through the renderer's gamma ramp on the finished picture
-(the title's own ramp, when it sets one, is bent the same way); live. FOV: the widescreen hook is the only FOV change; a separate FOV slider would use
-the same hook but is not exposed.
+(the title's own ramp, when it sets one, is bent the same way); live. FOV: the widescreen hook is the only FOV
+change; a separate FOV slider would use the same hook but is not exposed.
 
 ## Performance diagnostics
 
@@ -171,6 +171,6 @@ Mission 1's start logged **no** debug-layer error or warning.
 ## Low-end defaults
 
 Defaults: Auto render scale (output-sized; at most 2x on an integrated GPU), FSR 1 when upscaling, FXAA on,
-V-Sync on, 60 fps cap, anisotropic filtering as the game asks. The renderer costs under 1 ms of CPU per frame at 2x here; the GPU cost scales with render scale (table
-above). GPU detection is by dedicated memory only (integrated or not); a weak discrete GPU on a 4K display would still
+V-Sync on, 60 fps cap, anisotropic filtering as the game asks. The renderer costs under 1 ms of CPU per frame at 2x
+here; the GPU cost scales with render scale (tables above). GPU detection is by dedicated memory only (integrated or not); a weak discrete GPU on a 4K display would still
 render at 4K under Auto. Next: an Auto that lowers the scale when the measured GPU frame time exceeds a budget.
