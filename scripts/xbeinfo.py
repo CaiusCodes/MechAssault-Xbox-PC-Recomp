@@ -5,7 +5,13 @@ p = sys.argv[1]; d = open(p, 'rb').read()
 u32 = lambda o: struct.unpack_from('<I', d, o)[0]
 assert d[:4] == b'XBEH'
 base = u32(0x104)
-def off(va): return va - base
+def off(va):
+    # mechassault-recomp: headers map raw = va - base; sections by their own raw offset (MechAssault's do not match)
+    n_, sh_ = u32(0x11C), u32(0x120) - base
+    for i_ in range(n_):
+        fl_, sva, vs_, ra_, rs_ = struct.unpack_from('<5I', d, sh_ + i_ * 0x38)
+        if sva <= va < sva + rs_: return va - sva + ra_
+    return va - base
 info = {'sha256': hashlib.sha256(d).hexdigest(), 'sha1': hashlib.sha1(d).hexdigest(), 'size': len(d)}
 info['base'] = base; info['headers_size'] = u32(0x108); info['image_size'] = u32(0x10C)
 info['timedate'] = u32(0x114)

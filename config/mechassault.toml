@@ -1,0 +1,22 @@
+# MechAssault additions to the xbe_symbols output (config/game.toml). Each address needs its evidence.
+[symbols]
+# xbe_symbols matched it by constants (0.60) at 0x2E443F, which pops 4 instead of 8 and walks a USB descriptor table
+# (0x355760..0x355764), so it is not XInputGetCapabilities
+XInputGetCapabilities = 0
+
+# From scripts/oovpa_scan.py (XbSymbolDatabase 20eced5 patterns, 0 disagreements with the 78 xbe_symbols also found);
+# each checked by its stack pop (ret n) against the API's argument count, and the first by its body
+IDirectSound_SetMixBinHeadroom     = 0x29313F  # (this-8, bin, headroom) -> 0x29241E stores the byte at [obj+8]+bin+0x14
+IDirectSound_SetDopplerFactor      = 0x294316  # ret 0xC
+IDirectSoundBuffer_Lock            = 0x2932A3  # XbSDB 4831
+IDirectSoundBuffer_Unlock          = 0x2922A9  # ret 0x14, does nothing (as in the XDK)
+IDirectSoundBuffer_Pause           = 0x29322F  # ret 8
+IDirectSoundBuffer_StopEx          = 0x29320B  # ret 0x10 (this, REFERENCE_TIME, flags)
+IDirectSoundBuffer_SetFormat       = 0x293B8A  # ret 8
+IDirectSoundBuffer_SetOutputBuffer = 0x293BC2  # ret 8
+CDirectSoundStream_FlushEx         = 0x292E40  # XbSDB 4831
+CDirectSoundStream_SetFormat       = 0x293B20  # XbSDB 4831
+D3DDevice_SetLight                 = 0x264C30  # XbSDB 4831
+D3DDevice_SetMaterial              = 0x2642E0  # XbSDB 4831
+
+[data]

@@ -1,0 +1,118 @@
+agree 78, DISAGREE 0, filled from the scan 12, only xbe_symbols 72, neither 99
+
+## Disagree
+
+## Filled from the scan (each needs checking)
+- CDirectSoundStream_FlushEx = 0x292E40
+- CDirectSoundStream_SetFormat = 0x293B20
+- D3DDevice_SetLight = 0x264C30
+- D3DDevice_SetMaterial = 0x2642E0
+- IDirectSoundBuffer_Lock = 0x2932A3
+- IDirectSoundBuffer_Pause = 0x29322F
+- IDirectSoundBuffer_SetFormat = 0x293B8A
+- IDirectSoundBuffer_SetOutputBuffer = 0x293BC2
+- IDirectSoundBuffer_StopEx = 0x29320B
+- IDirectSoundBuffer_Unlock = 0x2922A9
+- IDirectSound_SetDopplerFactor = 0x294316
+- IDirectSound_SetMixBinHeadroom = 0x29313F
+
+## Found by neither
+- BinkDoFrame
+- BinkGetSummary
+- BinkNextFrame
+- BinkWait
+- CDirectSoundStream_SetFilter
+- CDirectSoundStream_SetFrequency
+- CDirectSoundStream_SetHeadroom
+- CDirectSoundStream_SetI3DL2Source
+- CDirectSoundStream_SetMaxDistance
+- CDirectSoundStream_SetMinDistance
+- CDirectSoundStream_SetMixBinVolumes
+- CDirectSoundStream_SetPosition
+- CDirectSoundStream_SetVelocity
+- D3DDevice_BeginPush
+- D3DDevice_DrawVerticesUP
+- D3DDevice_EnableOverlay
+- D3DDevice_EndPush
+- D3DDevice_FlushVertexCache
+- D3DDevice_GetRasterStatus
+- D3DDevice_GetTile
+- D3DDevice_GetVertexShaderFunction
+- D3DDevice_IsFencePending
+- D3DDevice_LightEnable
+- D3DDevice_LoadVertexShaderProgram
+- D3DDevice_Release
+- D3DDevice_RunPushBuffer
+- D3DDevice_SetGammaRamp
+- D3DDevice_SetPalette
+- D3DDevice_SetRenderTargetFast
+- D3DDevice_SetTile
+- D3DDevice_SetVertexShaderConstant1Fast
+- D3DDevice_SwitchTexture
+- D3DResource_BlockUntilNotBusy
+- D3D_BlockOnNonSurfaceResource
+- DirectSoundCreateBuffer
+- DirectSoundUseLightHRTF
+- IDirectSoundBuffer_SetAllParameters
+- IDirectSoundBuffer_SetEG
+- IDirectSoundBuffer_SetFilter
+- IDirectSoundBuffer_SetLoopRegion
+- IDirectSoundBuffer_SetPlayRegion
+- IDirectSoundStream_SetEG
+- IDirectSound_CommitEffectData
+- IDirectSound_EnableHeadphones
+- IDirectSound_GetEffectData
+- IDirectSound_GetOutputLevels
+- IDirectSound_GetSpeakerConfig
+- IDirectSound_SetDistanceFactor
+- IDirectSound_SetEffectData
+- IDirectSound_SetI3DL2Listener
+- IDirectSound_SetRolloffFactor
+- IDirectSound_SynchPlayback
+- WSACancelOverlappedIO
+- WSAGetLastError
+- WSAGetOverlappedResult
+- WSARecv
+- WSARecvFrom
+- WSASend
+- WSASendTo
+- WSAStartup
+- XAudioDownloadEffectsImage
+- XNetCreateKey
+- XNetDnsLookup
+- XNetDnsRelease
+- XNetGetEthernetLinkStatus
+- XNetGetTitleXnAddr
+- XNetInAddrToXnAddr
+- XNetRandom
+- XNetRegisterKey
+- XNetStartup
+- XNetUnregisterKey
+- XNetXnAddrToInAddr
+- XOnlineCleanup
+- XOnlineStartup
+- XPP_MemoryUnitType
+- accept
+- bind
+- closesocket
+- connect
+- crt_atan
+- crt_cos
+- crt_log
+- crt_log10
+- crt_pow
+- crt_sin
+- crt_sqrt
+- crt_tan
+- getsockname
+- getsockopt
+- ioctlsocket
+- listen
+- recv
+- recvfrom
+- select
+- send
+- sendto
+- setsockopt
+- shutdown
+- socket

@@ -1,0 +1,6 @@
+# skip movies, then press start on title
+900 START 6
+1200 START 6
+1500 A 6
+1800 START 6
+2100 A 6

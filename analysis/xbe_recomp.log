@@ -1,0 +1,38 @@
+default.xbe: title 4D530017 entry 00016DB9 kernel thunk 002E7D60
+direct: 770 functions, 37459 instructions
+pointer seeds: 10717 accepted, 3630 rejected
+gap fill: 4012 functions
+c++ eh: 154 catch blocks, 1 continuations
+late pointer seeds: 0
+overlapping decodes: 257
+total: 23160 functions, 845169 instructions, 2723282 code bytes of 2977112, 204 jump tables, 16 callback entries
+functions 23160
+instructions 955214
+unimplemented aaa 28
+unimplemented aad 7
+unimplemented aam 5
+unimplemented aas 138
+unimplemented arpl 5
+unimplemented bound 31
+unimplemented daa 36
+unimplemented das 23
+unimplemented enter 15
+unimplemented fbstp 1
+unimplemented femms 1
+unimplemented ffreep 1
+unimplemented insb 31
+unimplemented insd 13
+unimplemented int1 3
+unimplemented into 28
+unimplemented iretd 35
+unimplemented lar 1
+unimplemented lds 17
+unimplemented les 21
+unimplemented lfs 1
+unimplemented lldt 3
+unimplemented outsb 16
+unimplemented outsd 8
+unimplemented salc 7
+unimplemented sldt 2
+unimplemented str 1
+unimplemented verr 1

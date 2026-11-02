@@ -1,0 +1,2 @@
+# Recompiler entry config: xbe_symbols output plus MechAssault's maintained additions
+includes = ["game.toml", "mechassault.toml"]

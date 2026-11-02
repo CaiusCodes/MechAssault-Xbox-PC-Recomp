@@ -1,0 +1,36 @@
+﻿xbe_symbols.exe : default.xbe: title 4D530017
+At line:1 char:558
++ ... ecomp\sdk"; & out\build\release\xbe_symbols.exe assets\default.xbe "$ ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (default.xbe: title 4D530017:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  libraries: XAPILIB 1.0.4831 XONLINES 1.0.4831 XBOXKRNL 1.0.4831 LIBCMT 1.0.4831 XVOICE 1.0.4831 D3D8 1.0.4831 D3DX8 
+1.0.4831 XGRAPHC 1.0.4831 DSOUND 1.0.4831 LIBCPMT 1.0.4831
+  using C:\Users\jaybr\OneDrive\Desktop\MechAssault-Xbox-PC-Recomp\sdk\xdk\4831
+  found 138 of 248 functions, 12 of 13 data
+  XInputGetCapabilities found by constants (0.60) at 0x2E443F
+  convention differs from the reference, prove each argument order by hand and write it in [abi]:
+    XInputGetCapabilities at 0x2E443F reads no register, pops 4; reference reads no register, pops 8
+  missing (0, the host traps if the game calls one): BinkDoFrame BinkGetSummary BinkNextFrame BinkWait 
+CDirectSoundStream_FlushEx CDirectSoundStream_SetFilter CDirectSoundStream_SetFormat CDirectSoundStream_SetFrequency 
+CDirectSoundStream_SetHeadroom CDirectSoundStream_SetI3DL2Source CDirectSoundStream_SetMaxDistance 
+CDirectSoundStream_SetMinDistance CDirectSoundStream_SetMixBinVolumes CDirectSoundStream_SetPosition 
+CDirectSoundStream_SetVelocity D3DDevice_BeginPush D3DDevice_DrawVerticesUP D3DDevice_EnableOverlay D3DDevice_EndPush 
+D3DDevice_FlushVertexCache D3DDevice_GetRasterStatus D3DDevice_GetTile D3DDevice_GetVertexShaderFunction 
+D3DDevice_IsFencePending D3DDevice_LightEnable D3DDevice_LoadVertexShaderProgram D3DDevice_Release 
+D3DDevice_RunPushBuffer D3DDevice_SetGammaRamp D3DDevice_SetLight D3DDevice_SetMaterial D3DDevice_SetPalette 
+D3DDevice_SetRenderTargetFast D3DDevice_SetTile D3DDevice_SetVertexShaderConstant1Fast D3DDevice_SwitchTexture 
+D3DResource_BlockUntilNotBusy D3D_BlockOnNonSurfaceResource DirectSoundCreateBuffer DirectSoundUseLightHRTF 
+IDirectSoundBuffer_Lock IDirectSoundBuffer_Pause IDirectSoundBuffer_SetAllParameters IDirectSoundBuffer_SetEG 
+IDirectSoundBuffer_SetFilter IDirectSoundBuffer_SetFormat IDirectSoundBuffer_SetLoopRegion 
+IDirectSoundBuffer_SetOutputBuffer IDirectSoundBuffer_SetPlayRegion IDirectSoundBuffer_StopEx 
+IDirectSoundBuffer_Unlock IDirectSoundStream_SetEG IDirectSound_CommitEffectData IDirectSound_EnableHeadphones 
+IDirectSound_GetEffectData IDirectSound_GetOutputLevels IDirectSound_GetSpeakerConfig IDirectSound_SetDistanceFactor 
+IDirectSound_SetDopplerFactor IDirectSound_SetEffectData IDirectSound_SetI3DL2Listener IDirectSound_SetMixBinHeadroom 
+IDirectSound_SetRolloffFactor IDirectSound_SynchPlayback WSACancelOverlappedIO WSAGetLastError WSAGetOverlappedResult 
+WSARecv WSARecvFrom WSASend WSASendTo WSAStartup XAudioDownloadEffectsImage XNetCreateKey XNetDnsLookup XNetDnsRelease 
+XNetGetEthernetLinkStatus XNetGetTitleXnAddr XNetInAddrToXnAddr XNetRandom XNetRegisterKey XNetStartup 
+XNetUnregisterKey XNetXnAddrToInAddr XOnlineCleanup XOnlineStartup accept bind closesocket connect crt_atan crt_cos 
+crt_log crt_log10 crt_pow crt_sin crt_sqrt crt_tan getsockname getsockopt ioctlsocket listen recv recvfrom select send 
+sendto setsockopt shutdown socket XPP_MemoryUnitType
