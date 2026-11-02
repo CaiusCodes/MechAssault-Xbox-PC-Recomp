@@ -4,10 +4,11 @@
 // 0x276C5D (or D3DXMatrixOrthoLH 0x276CF1 when +0x8C is set) into a matrix at [esp+0x40], sets it on the device
 // (SetTransform(1, ...) at 0x39210), keeps a copy at +0x1A0 and multiplies it with the view into +0x1E0, which the
 // culling reads. A [[hook]] at 0x39209 (config/mechassault.toml), between the D3DX call and SetTransform, divides the
-// clip x column by app::WideView, so the device, the copy and the culling all get the wider view. Only 4:3
-// perspective cameras are widened (y scale over x scale within 1% of 4/3): orthographic ones and render-to-texture
-// views of another shape (the 'Mech preview in the menus) keep theirs. The renderer squeezes flat draws (the HUD,
-// menus, text) back to 4:3 in the middle (gpu/widescreen.h).
+// clip x column by app::WideView, so the device, the copy and the culling all get the wider view. Only perspective
+// cameras of the screen's shapes are widened (y scale over x scale within 1% of 4/3, or of 2/3 and 8/3 for the two
+// halves of two-player splitscreen, which are shown that much wider too): orthographic ones and render-to-texture
+// views of other shapes keep theirs. The renderer squeezes flat draws (the HUD, menus, text) back to 4:3 in the
+// middle (gpu/widescreen.h).
 #include <algorithm>
 #include <bit>
 #include <chrono>
@@ -46,7 +47,8 @@ void MechAssaultWidenProjection(X86Context& ctx, uint8_t*) {
     auto get = [&](int i) { return std::bit_cast<float>(kernel::R32(at(i))); };
     float xs = get(0), ys = get(5);
     if (get(11) == 0.0f || xs == 0.0f) return;  // orthographic
-    if (std::fabs(ys / xs - 4.0f / 3.0f) > 4.0f / 3.0f * 0.01f) return;
+    auto shape = [&](float a) { return std::fabs(ys / xs - a) <= a * 0.01f; };
+    if (!shape(4.0f / 3.0f) && !shape(2.0f / 3.0f) && !shape(8.0f / 3.0f)) return;
     // a wider field of view scales tan(fov / 2), so the clip scales divide by f
     for (int r = 0; r < 4; r++) {
         kernel::W32(at(r * 4), std::bit_cast<uint32_t>(get(r * 4) / (k * f)));

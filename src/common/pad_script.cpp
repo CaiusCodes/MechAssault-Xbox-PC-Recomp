@@ -36,6 +36,7 @@ struct Step {
     std::string control;
     int value;
     std::string key;  // "set": the setting
+    int port = 0;     // a control written "2:a" goes to controller port 2 (index 1)
 };
 
 std::vector<Step> Load() {
@@ -57,6 +58,10 @@ std::vector<Step> Load() {
             continue;
         }
         s >> hold >> st.value;
+        if (st.control.rfind("2:", 0) == 0) {
+            st.port = 1;
+            st.control.erase(0, 2);
+        }
         st.until = st.at + hold / 1000.0;
         steps.push_back(st);
     }
@@ -68,7 +73,12 @@ std::vector<Step> Load() {
 
 void ScriptPad(int port, input::Pad& pad) {
     static const std::vector<Step> steps = Load();
-    if (port != 0 || steps.empty()) return;
+    static const bool second = [] {
+        for (const Step& st : steps)
+            if (st.port == 1) return true;
+        return false;
+    }();
+    if (steps.empty() || port > 1 || (port == 1 && !second)) return;
     using clock = std::chrono::steady_clock;
     static const clock::time_point start = clock::now();
     double now = std::chrono::duration<double>(clock::now() - start).count();
@@ -78,6 +88,7 @@ void ScriptPad(int port, input::Pad& pad) {
     static size_t dumped = 0;
     for (size_t i = 0; i < steps.size(); i++) {
         const Step& st = steps[i];
+        if (st.port != port) continue;
         if (st.control == "dump" && now >= st.at && i >= dumped) {
             dumped = i + 1;
             gpu::g_capture = true;
