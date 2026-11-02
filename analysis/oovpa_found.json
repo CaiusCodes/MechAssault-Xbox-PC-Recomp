@@ -212,7 +212,15 @@
  "XInputGetState": 3042906,
  "XInputSetState": 3043014,
  "XLaunchNewImageA": 91702,
+ "XNetStartup": 2430476,
  "XOnlineLogon": 2327681,
  "XRegisterThreadNotifyRoutine": 113017,
- "XapiInitProcess": 95740
+ "XapiInitProcess": 95740,
+ "bind": 2434371,
+ "connect": 2434503,
+ "ioctlsocket": 2431434,
+ "listen": 2432004,
+ "recv": 2437260,
+ "send": 2437752,
+ "socket": 2439218
 }

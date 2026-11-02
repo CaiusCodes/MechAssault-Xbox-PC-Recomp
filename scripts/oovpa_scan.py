@@ -24,10 +24,12 @@ lo = u32(0x164) - base
 for i in range(u32(0x160)):
     o = lo + i * 16
     libs[d[o:o + 8].split(b'\0')[0].decode()] = struct.unpack_from('<H', d, o + 12)[0]
+# XNet ships inside XONLINES in builds that list no XNETS library (MechAssault, 4831)
+if 'XNETS' not in libs and 'XONLINES' in libs: libs['XNETS'] = libs['XONLINES']
 
 # which sections each database scans (the XDK puts each library in its own section; XAPI and the CRT live in .text)
 LIBS = {'D3D8': ('D3D8', ['D3D', 'D3DX']), 'DSound': ('DSOUND', ['DSOUND']), 'Xapi': ('XAPILIB', ['.text', 'XPP']),
-        'XGraphic': ('XGRAPHC', ['XGRPH']), 'XNet': ('XNETS', ['XNET']), 'XOnline': ('XONLINES', ['XONLINE'])}
+        'XGraphic': ('XGRAPHC', ['XGRPH']), 'XNet': ('XNETS', ['XNET']), 'XOnline': ('XONLINES', ['XONLINE', 'XNET'])}
 
 num = lambda s: int(s, 0)
 sigs = {}  # (name, version) -> (xrefs [(off, xrefname)], pairs [(off, byte)])

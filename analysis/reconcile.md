@@ -1,4 +1,4 @@
-agree 78, DISAGREE 0, filled from the scan 12, only xbe_symbols 72, neither 99
+agree 78, DISAGREE 0, filled from the scan 20, only xbe_symbols 72, neither 91
 
 ## Disagree
 
@@ -15,6 +15,14 @@ agree 78, DISAGREE 0, filled from the scan 12, only xbe_symbols 72, neither 99
 - IDirectSoundBuffer_Unlock = 0x2922A9
 - IDirectSound_SetDopplerFactor = 0x294316
 - IDirectSound_SetMixBinHeadroom = 0x29313F
+- XNetStartup = 0x25160C
+- bind = 0x252543
+- connect = 0x2525C7
+- ioctlsocket = 0x2519CA
+- listen = 0x251C04
+- recv = 0x25308C
+- send = 0x253278
+- socket = 0x253832
 
 ## Found by neither
 - BinkDoFrame
@@ -86,16 +94,13 @@ agree 78, DISAGREE 0, filled from the scan 12, only xbe_symbols 72, neither 99
 - XNetInAddrToXnAddr
 - XNetRandom
 - XNetRegisterKey
-- XNetStartup
 - XNetUnregisterKey
 - XNetXnAddrToInAddr
 - XOnlineCleanup
 - XOnlineStartup
 - XPP_MemoryUnitType
 - accept
-- bind
 - closesocket
-- connect
 - crt_atan
 - crt_cos
 - crt_log
@@ -106,13 +111,8 @@ agree 78, DISAGREE 0, filled from the scan 12, only xbe_symbols 72, neither 99
 - crt_tan
 - getsockname
 - getsockopt
-- ioctlsocket
-- listen
-- recv
 - recvfrom
 - select
-- send
 - sendto
 - setsockopt
 - shutdown
-- socket
