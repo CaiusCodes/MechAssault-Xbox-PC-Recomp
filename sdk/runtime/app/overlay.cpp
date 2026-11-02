@@ -282,7 +282,10 @@ void Menu() {
     g_menu_drawn = true;
     static bool popup_before = false;  // B that closed a list this frame must not close the menu too
     bool open = true;
-    std::string title = "Breakdown PC settings";
+    // mechassault-recomp patch: the title's own name, not Breakdown's (the shared layer never names a title)
+    std::string title;
+    for (const wchar_t* c = kGame.short_title; *c; c++) title += *c < 0x80 ? char(*c) : '?';
+    title += " PC settings";
     if (ImGui::Begin(title.c_str(), &open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
         ImGui::TextDisabled("Controller: hold Back and press Start to open or close, A to change, B to close.");
         ImGui::PushItemWidth(260);

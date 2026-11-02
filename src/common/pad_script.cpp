@@ -2,7 +2,7 @@
 // names a text file of lines "<seconds> <control> [hold ms, default 150] [value]", seconds from the first poll;
 // controls: a b x y black white lt rt start back l3 r3 up down left right, lx ly rx ry (value -32768..32767, held
 // for the hold time); "dump" logs every guest thread's stack and starts an F3 frame capture (XBE_CAPTURE_DIR).
-// '#' starts a comment. Merged into whatever the keyboard and controllers give.
+// "menu" opens or closes the F1 settings menu. '#' starts a comment. Merged into whatever the keyboard and controllers give.
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +16,10 @@
 #include "core/log.h"
 #include "gpu/backend.h"
 #include "kernel/kernel.h"
+
+namespace app {
+void ToggleMenu();  // app/overlay.cpp
+}
 
 namespace mechassault {
 
@@ -84,6 +88,10 @@ void ScriptPad(int port, input::Pad& pad) {
                     LOGR("thread %X", t->id);
                     kernel::LogGuestStack(*t->ctx, 32);
                 }
+        }
+        if (st.control == "menu" && now >= st.at && i >= dumped) {
+            dumped = i + 1;
+            app::ToggleMenu();
         }
         if (now < st.at || now >= st.until) continue;
         for (int b = 0; b < 8; b++) {

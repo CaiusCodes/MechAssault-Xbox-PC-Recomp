@@ -10,6 +10,7 @@ using System; using System.Runtime.InteropServices;
 public static class W { [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint f);
  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+ [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string c, string t);
  public struct RECT { public int L, T, R, B; } }
 "@
 $dir = Join-Path $root "runs\$Tag"; New-Item -ItemType Directory -Force $dir | Out-Null
@@ -22,6 +23,7 @@ $t0 = Get-Date; $i = 0
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds -and -not $p.HasExited) {
     Start-Sleep -Seconds $Every; $p.Refresh(); $h = $p.MainWindowHandle
     $now = ((Get-Date) - $t0).TotalSeconds
+    $gw = [W]::FindWindow($null, "MechAssault"); if ($gw -ne [IntPtr]::Zero) { $h = $gw }
     if ($h) { foreach ($e in $pending) { if ($e[0] -ge 0 -and $now -ge $e[0]) {
         [void][W]::PostMessage($h, 0x100, [IntPtr]$e[1], [IntPtr]0); Start-Sleep -Milliseconds 120
         [void][W]::PostMessage($h, 0x101, [IntPtr]$e[1], [IntPtr]0xC0000001); $e[0] = -1 } } }

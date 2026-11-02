@@ -1,10 +1,11 @@
-// mechassault-recomp (from the Breakdown port): keyboard and mouse buttons as controller port 1, rebindable in the F1 menu's Controls section.
-// Each control of the Xbox pad (buttons, triggers, d-pad, stick directions) takes up to two keys or mouse buttons,
-// merged with a real pad on that port. The defaults follow the game's own Buttons type A layout (pause > Options >
-// Controller Settings, read in the harness 2026-11-02): RT Attack 1, LT Attack 2, X Access, Y Change Weapon,
-// B Cancel, A Lock-on, Black Jump, White Grenade, left stick click Guard, right stick click Crouch, d-pad Change
-// Weapon. Mouse look is src/game/mouse_look.cpp. Settings: the [bindings] table of settings.toml, by control name,
-// each an array of key names ("W", "Mouse1", "LShift", ...).
+// mechassault-recomp (from the Breakdown port): keyboard and mouse buttons as controller port 1, rebindable in the F1
+// menu's Controls section. Each control of the Xbox pad (buttons, triggers, d-pad, stick directions) takes up to two
+// keys or mouse buttons, merged with a real pad on that port. The defaults follow MechAssault's own Normal layouts
+// (Player Setup > Edit Profile > Controls, read in a scripted Windows run 2026-11-02): left stick move forward/back
+// and left/right, right stick look up/down and rotate the torso; RT and A Fire Weapon, LT Cycle Weapons, X Select
+// Energy Weapon, Y Select Ballistic Weapon, B Select Missile Weapon, left stick click Jump, right stick click Defense,
+// Back Start Menu, White Scoreboard, Black Toggle Global/Team Chat. Mouse aiming is src/game/mouse_aim.cpp.
+// Settings: the [bindings] table of settings.toml, by control name, each an array of key names ("W", "Mouse1", ...).
 #include <algorithm>
 #include <atomic>
 #include <cfloat>
@@ -39,21 +40,21 @@ enum Control : int {
 
 struct ControlInfo {
     const char* key;    // settings name
-    const char* label;  // F1 menu, the game's action for Buttons type A
+    const char* label;  // F1 menu, the game's action in its Normal layout
 };
 constexpr ControlInfo kInfo[kControls] = {
-    {"a", "Lock-on (A)"},
-    {"b", "Cancel (B)"},
-    {"x", "Access (X)"},
-    {"y", "Change weapon (Y)"},
-    {"black", "Jump (Black)"},
-    {"white", "Grenade (White)"},
-    {"left_trigger", "Attack 2 (left trigger)"},
-    {"right_trigger", "Attack 1 (right trigger)"},
+    {"a", "Fire / menu select (A)"},
+    {"b", "Select missile weapon / back (B)"},
+    {"x", "Select energy weapon (X)"},
+    {"y", "Select ballistic weapon (Y)"},
+    {"black", "Toggle team chat (Black)"},
+    {"white", "Scoreboard (White)"},
+    {"left_trigger", "Cycle weapons (left trigger)"},
+    {"right_trigger", "Fire weapon (right trigger)"},
     {"start", "Pause (Start)"},
-    {"back", "Back"},
-    {"left_thumb", "Guard (left stick click)"},
-    {"right_thumb", "Crouch (right stick click)"},
+    {"back", "Start menu (Back)"},
+    {"left_thumb", "Jump jets (left stick click)"},
+    {"right_thumb", "Defense (right stick click)"},
     {"dpad_up", "D-pad up"},
     {"dpad_down", "D-pad down"},
     {"dpad_left", "D-pad left"},
@@ -64,8 +65,8 @@ constexpr ControlInfo kInfo[kControls] = {
     {"move_right", "Move right"},
     {"look_up", "Look up"},
     {"look_down", "Look down"},
-    {"look_left", "Look left"},
-    {"look_right", "Look right"},
+    {"look_left", "Rotate torso left"},
+    {"look_right", "Rotate torso right"},
 };
 
 constexpr int kSlots = 2;
@@ -75,19 +76,19 @@ constexpr int kSlots = 2;
 // the mouse wheel as two keys on codes Windows leaves unassigned: each notch is a short press
 constexpr uint8_t kWheelUp = 0x0E, kWheelDown = 0x0F;
 constexpr uint8_t kDefaults[kControls][kSlots] = {
-    {VK_MBUTTON, VK_RETURN},  // A: lock-on, and Enter to confirm in menus
-    {VK_BACK, 0},             // B
-    {'E', 0},                 // X
-    {'Q', 0},                 // Y
-    {VK_SPACE, 0},            // Black
-    {'G', 0},                 // White
-    {VK_RBUTTON, 0},          // LT
-    {VK_LBUTTON, 0},          // RT
+    {VK_RETURN, 0},           // A: fire too, and Enter confirms in menus
+    {VK_BACK, '3'},           // B: missile weapon; Backspace is back in menus
+    {'1', 0},                 // X: energy weapon
+    {'2', 0},                 // Y: ballistic weapon
+    {'T', 0},                 // Black: team chat
+    {VK_TAB, 0},              // White: scoreboard
+    {VK_RBUTTON, 'Q'},        // LT: cycle weapons
+    {VK_LBUTTON, 0},          // RT: fire
     {VK_ESCAPE, 0},           // Start
-    {VK_TAB, 0},              // Back
-    {VK_LSHIFT, 0},           // L3
-    {'C', VK_LCONTROL},       // R3
-    {VK_UP, kWheelUp},        // d-pad: change weapon in play, and the wheel moves through menus and weapons
+    {'M', 0},                 // Back: start menu
+    {VK_SPACE, 0},            // L3: jump jets (hold)
+    {VK_LSHIFT, 'F'},         // R3: defense
+    {VK_UP, kWheelUp},        // d-pad: menus, and the wheel moves through them
     {VK_DOWN, kWheelDown},
     {VK_LEFT, 0},
     {VK_RIGHT, 0},
@@ -326,7 +327,7 @@ void BindingsMenu() {
     }
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("Click a binding, then press a key or mouse button or turn the wheel. Right-click a binding to clear it. Actions are "
-                       "named for the game's Buttons type A (pause > Options > Controller Settings).");
+                       "named for the game's Normal button layout (Player Setup > Edit Profile > Controls).");
     ImGui::PopStyleColor();
     if (ImGui::BeginTable("##bindings", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 2.0f);
