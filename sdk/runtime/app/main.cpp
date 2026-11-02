@@ -264,7 +264,19 @@ void Pace() {
     auto period = std::chrono::nanoseconds(1000000000ull / cap);
     next += period;
     if (next < now - period) next = now;
-    while (clock::now() + std::chrono::milliseconds(2) < next) Sleep(1);
+    // mechassault-recomp patch: a high-resolution waitable timer sleeps to within 0.3 ms of the deadline, so the last
+    // 2 ms are no longer spent yielding in a loop (a share of a core at 60 fps); Sleep(1) steps where it is missing
+    static HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (timer) {
+        auto left = next - clock::now() - std::chrono::microseconds(300);
+        if (left > std::chrono::microseconds(100)) {
+            LARGE_INTEGER due;
+            due.QuadPart = -int64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(left).count() / 100);
+            if (SetWaitableTimerEx(timer, &due, 0, nullptr, nullptr, nullptr, 0)) WaitForSingleObject(timer, 100);
+        }
+    } else {
+        while (clock::now() + std::chrono::milliseconds(2) < next) Sleep(1);
+    }
     while (clock::now() < next) std::this_thread::yield();
 }
 

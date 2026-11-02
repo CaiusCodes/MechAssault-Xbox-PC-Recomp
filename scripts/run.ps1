@@ -19,11 +19,12 @@ if (-not $env:XBE_CAPTURE_DIR) { $env:XBE_CAPTURE_DIR = Join-Path $root "capture
 $pending = @(); foreach ($t in $F3At) { $pending += ,@($t, 0x72) }
 if ($Keys) { foreach ($k in $Keys.Split(",")) { $a = $k.Split(":"); $pending += ,@([int]$a[0], [int][System.Windows.Forms.Keys]::($a[1])) } }
 $p = Start-Process -FilePath (Join-Path $root $Exe) -WorkingDirectory (Split-Path (Join-Path $root $Exe)) -PassThru
-$t0 = Get-Date; $i = 0
+$t0 = Get-Date; $i = 0; $lastCpu = 0; $lastT = 0; $cpuLog = Join-Path $dir "cpu.txt"; "" | Set-Content $cpuLog
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds -and -not $p.HasExited) {
     $left = $Seconds - ((Get-Date) - $t0).TotalSeconds
     Start-Sleep -Milliseconds ([int](1000 * [math]::Max(0.2, [math]::Min($Every, $left)))); $p.Refresh(); $h = $p.MainWindowHandle
     $now = ((Get-Date) - $t0).TotalSeconds
+    try { $cpu = $p.TotalProcessorTime.TotalSeconds; if ($now -gt $lastT) { "{0,7:N1} s  {1,5:N2} cores  {2,5:N0} MB" -f $now, (($cpu - $lastCpu) / ($now - $lastT)), ($p.WorkingSet64 / 1MB) | Add-Content $cpuLog }; $lastCpu = $cpu; $lastT = $now } catch {}
     $gw = [W]::FindWindow($null, "MechAssault"); if ($gw -ne [IntPtr]::Zero) { $h = $gw }
     if ($h) { foreach ($e in $pending) { if ($e[0] -ge 0 -and $now -ge $e[0]) {
         [void][W]::PostMessage($h, 0x100, [IntPtr]$e[1], [IntPtr]0); Start-Sleep -Milliseconds 120

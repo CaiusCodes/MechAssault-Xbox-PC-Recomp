@@ -40,8 +40,11 @@ not available to test here (the session must not change the desktop's mode).
 Frame cap and V-Sync: F1 > Display (Off, display refresh, 30, 60, 120, 144). Above 60 the game would step at the
 higher rate too (its clock allows it); only 30 and 60 were measured.
 
-No busy-wait: the main thread waits in the frame limiter (`limiter 15 ms` of each 16.7 ms frame in the log), CPU
-use stays at about a quarter of one core.
+Frame limiter (shared `app::Pace`): it slept in 1 ms steps and then yielded in a loop for the last 2 ms of every
+frame. It now waits on a high-resolution waitable timer to within 0.3 ms and only yields for that. Measured with the
+same scripted run (`runs\cpu_before`, `runs\cpu_after`, process CPU per 10 s): menus 0.15-0.23 -> 0.08-0.17
+cores, play 0.21-0.25 -> 0.18-0.19 cores, with 60.00 fps, 1% low 56.5-57.9 and p99 17.2 ms unchanged (frame jitter
+0.16-0.20 -> 0.30 ms). The game itself does not busy-wait.
 
 ## Render scale (Auto, 1x, 2x, 3x, 4x)
 
