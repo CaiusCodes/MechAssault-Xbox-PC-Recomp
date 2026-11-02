@@ -63,8 +63,9 @@ constexpr ControlInfo kInfo[kControls] = {
     {"move_back", "Move back"},
     {"move_left", "Move left"},
     {"move_right", "Move right"},
-    {"look_up", "Look up"},
-    {"look_down", "Look down"},
+    // the right stick's up tilts the view down with the game's default Y axis (measured), so these name the stick
+    {"look_up", "Right stick up (looks down)"},
+    {"look_down", "Right stick down (looks up)"},
     {"look_left", "Rotate torso left"},
     {"look_right", "Rotate torso right"},
 };
@@ -96,8 +97,8 @@ constexpr uint8_t kDefaults[kControls][kSlots] = {
     {'S', 0},
     {'A', 0},
     {'D', 0},
-    {'I', 0},
-    {'K', 0},
+    {'K', 0},  // stick up: looks down, so K
+    {'I', 0},  // stick down: looks up, so I
     {'J', 0},
     {'L', 0},
 };
