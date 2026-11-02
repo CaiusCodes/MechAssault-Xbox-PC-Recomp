@@ -1,0 +1,29 @@
+# Mission 1, walking, while video settings change live (render scale, aspect, window size, FSR, brightness, AA)
+# title -> profile -> briefing -> select 'Mech -> Launch Mission 1, then walk, turn and fire
+14 start 200
+18 a 200
+22 a 200
+30 a 200
+34 start 200
+38 a 200
+45 a 200
+52 a 200
+58 a 200
+# live settings changes during Mission 1 (each as the F1 menu applies it)
+70 ly 30000 20000
+72 set render_scale 1
+76 set render_scale 3
+80 set aspect_ratio 1
+82 set width 1600
+82 set height 900
+86 set upscaler 0
+88 set render_scale 1
+90 set upscaler 1
+92 set brightness 130
+94 set anti_aliasing 0
+96 set render_scale 0
+98 set width 1280
+98 set height 960
+99 set aspect_ratio 0
+100 set brightness 100
+101 dump

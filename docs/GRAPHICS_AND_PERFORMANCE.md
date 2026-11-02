@@ -148,6 +148,12 @@ not looked at. Render scale Auto renders as many pixels as the picture is wide, 
 | Performance overlay, frame-timing log | immediately |
 | Mouse aim, sensitivity, invert, key bindings | immediately |
 
+Verified live in Mission 1 with `scripts\pad_live_settings.txt` (the pad script's `set` step changes a setting the
+way the menu does): render scale Auto -> 1x (FSR engaged) -> 3x -> 1x -> Auto, aspect 4:3 -> Widescreen -> 4:3,
+window 1280x960 -> 1600x900 -> 1280x960, FSR off/on, brightness 130% and back, FXAA off, while walking. No restart,
+no crash, the mission carried on; 60 fps throughout with the worst frame 35 ms at a render-scale switch
+(`runs\live1&.png`: the 1600x900 window in Widescreen).
+
 Nothing needs a restart. Monitor selection is "the monitor the window is on". Brightness: F1 >
 Display > Brightness (50-200%), a gamma curve applied through the renderer's gamma ramp on the finished picture
 (the title's own ramp, when it sets one, is bent the same way); live. FOV: the widescreen hook is the only FOV change; a separate FOV slider would use
