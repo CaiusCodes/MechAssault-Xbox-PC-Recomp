@@ -128,7 +128,8 @@ low 57.3 (same as bilinear); edges visibly crisper than bilinear with no halos o
 
 How (src/game/widescreen.cpp): every camera's projection is built in one function; a `[[hook]]` between
 `D3DXMatrixPerspectiveFovLH` and `SetTransform` divides the clip x column by the display's width over 4:3, only for
-4:3 perspective cameras. The same widened matrix feeds the game's culling, so nothing at the new edges is culled.
+4:3 perspective cameras (and the 8:3 / 2:3 half-screen cameras of two-player splitscreen, verified in
+`runs\splitwide2\000.png`; each half's HUD then sits a little toward the middle). The same widened matrix feeds the game's culling, so nothing at the new edges is culled.
 Cameras are rebuilt 120 times a second in play (two cameras a frame at 60 fps; `XBE_PERF` logs "camera builds a
 second"), so a change applies on the next frame.
 
