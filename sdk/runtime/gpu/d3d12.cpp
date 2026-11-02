@@ -1072,6 +1072,20 @@ bool D3D12Backend::CreateDevice() {
     DXGI_ADAPTER_DESC1 ad{};
     if (adapter) adapter->GetDesc1(&ad);
     LOGR("D3D12 adapter: %ls", adapter ? ad.Description : L"default");
+    // mechassault-recomp patch: with XBE_D3D12_DEBUG, the debug layer's messages go to the log too (first 200)
+    if (GetEnvironmentVariableW(L"XBE_D3D12_DEBUG", nullptr, 0)) {
+        ComPtr<ID3D12InfoQueue1> iq;
+        DWORD cookie = 0;
+        if (SUCCEEDED(dev_.As(&iq)))
+            iq->RegisterMessageCallback(
+                [](D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY sev, D3D12_MESSAGE_ID id, LPCSTR text, void*) {
+                    static std::atomic<int> n{0};
+                    if (sev <= D3D12_MESSAGE_SEVERITY_WARNING && n++ < 200) LOGR("d3d12 debug %d (%d): %s", int(sev), int(id), text);
+                },
+                D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &cookie);
+        LOGR("d3d12: debug layer messages %s", cookie ? "logged" : "not available");
+    }
+
     // mechassault-recomp patch: under 1 GB of its own memory is an integrated GPU: Auto render scale stays at 2x or less
     if (adapter && ad.DedicatedVideoMemory < (1ull << 30)) {
         app::SetLowEndGpu(true);

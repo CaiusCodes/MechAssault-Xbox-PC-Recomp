@@ -158,7 +158,9 @@ the same hook but is not exposed.
 F2 cycles the overlay: off, FPS counter, counter + diagnostics (frame time graph, 1% low, CPU/GPU-side timings,
 process CPU and memory). `diagnostics_log` writes a frame timing summary every 10 s. `XBE_PERF=1` adds per-second
 renderer lines (draws, uploads, shader compiles, waits) and, new here, the audio output's peak and RMS every 10 s.
-The shader disk cache removes the first-use compile stalls on later runs.
+The shader disk cache removes the first-use compile stalls on later runs. `XBE_D3D12_DEBUG=1` enables the D3D12
+debug layer and now also writes its messages to the log: a run from boot through the menus, the briefing and
+Mission 1's start logged **no** debug-layer error or warning.
 
 ## Low-end defaults
 
