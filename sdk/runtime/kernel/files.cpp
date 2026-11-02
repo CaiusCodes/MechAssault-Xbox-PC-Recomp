@@ -78,6 +78,9 @@ struct File : Object {
     size_t next = 0;
     bool listed = false;
     bool delete_on_close = false;
+    // mechassault-recomp patch: opened without FILE_SYNCHRONOUS_IO_(NON)ALERT (options 0x10/0x20): an overlapped
+    // handle, whose transfers report STATUS_PENDING (see Transfer)
+    bool async = false;
     std::mutex io;  // threads sharing a handle: seek and transfer stay together
     File() : Object(ObjType::File) {}
     ~File() override {
@@ -296,6 +299,7 @@ uint32_t OpenOnDisc(const Disc::Entry* e, const std::string& name, uint32_t hand
     f->xbox = Normalize(name);
     f->entry = e;
     f->dir = e->dir;
+    f->async = !(options & 0x30);
     W32(handle_out, NewHandle(f));
     IoStatus(iosb, kSuccess, 1);
     LOG_FIRST(400, "open %s", name.c_str());
@@ -418,6 +422,7 @@ KERNEL_EXPORT(190, NtCreateFile, 9) {
     f->xbox = Normalize(name);
     f->fp = fp;
     f->delete_on_close = options & 0x1000;  // FILE_DELETE_ON_CLOSE
+    f->async = !(options & 0x30);
     W32(handle_out, NewHandle(f));
     IoStatus(iosb, kSuccess, info);
     LOG_FIRST(400, "open %s", name.c_str());
@@ -442,6 +447,7 @@ KERNEL_EXPORT(202, NtOpenFile, 6) {
     f->host = host;
     f->xbox = Normalize(name);
     f->dir = fs::is_directory(host, ec);
+    f->async = !(options & 0x30);
     if (!f->dir) {
         f->fp = std::fopen(host.c_str(), "r+b");
         if (!f->fp) f->fp = std::fopen(host.c_str(), "rb");
@@ -488,9 +494,22 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
         if (done < chunk) break;
     }
     f->pos = pos + n;
+    // mechassault-recomp patch: XBE_IOLOG=1 logs every transfer (first 2000): file, offset, size, done, completion
+    static const bool io_log = std::getenv("XBE_IOLOG") != nullptr;
+    static std::atomic<int> io_logged{0};
+    if (io_log && io_logged++ < 2000)
+        LOGR("io: %s %s at %llX len %X done %X buf %08X event %X apc %08X", write ? "write" : "read",
+             f->xbox.c_str(), (unsigned long long)pos, len, n, buf, event, apc);
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full
     if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
-    return Finish(*f, kSuccess, n, event, apc, apc_ctx, iosb);
+    uint32_t status = Finish(*f, kSuccess, n, event, apc, apc_ctx, iosb);
+    // mechassault-recomp patch: on an overlapped handle the console's transfers go to the drive and return
+    // STATUS_PENDING (ReadFile: FALSE with ERROR_IO_PENDING), completing later through the status block, the event
+    // and the APC. Here the transfer is already complete (all three are set above), but it still reports pending:
+    // MechAssault's hard disk cache copy only decompresses a block on the pending path, and on an immediate success
+    // counts the block as done without writing it (an empty cache, then a crash loading the menus).
+    if (f->async && (event || apc)) return kPending;
+    return status;
 }
 
 KERNEL_EXPORT(219, NtReadFile, 8) { return Transfer(a, false, 0); }
@@ -571,10 +590,25 @@ KERNEL_EXPORT(226, NtSetInformationFile, 5) {
             std::string target = ReadAnsiString(in + 8);
             std::string host = ResolvePath(target, root);
             if (host.empty()) return kObjectPathNotFound;
-            if (f->fp) std::fflush(f->fp);
+            // mechassault-recomp patch: Windows refuses to rename a file this very handle holds open (the CRT opens
+            // without delete sharing), so MoveFile always failed there; close it around the rename and reopen it
+            // (MechAssault renames its hard disk cache copy z:\filecopy.tmp this way)
+            std::lock_guard<std::mutex> lock(f->io);
+            bool was_open = f->fp != nullptr;
+            if (was_open) {
+                std::fclose(f->fp);
+                f->fp = nullptr;
+            }
             fs::rename(f->host, host, ec);
-            if (ec) return kAccessDenied;
-            f->host = host;
+            if (!ec) f->host = host;
+            if (was_open) {
+                f->fp = std::fopen(f->host.string().c_str(), "r+b");
+                if (!f->fp) f->fp = std::fopen(f->host.string().c_str(), "rb");
+            }
+            if (ec) {
+                LOGW("NtSetInformationFile: rename to %s failed: %s", target.c_str(), ec.message().c_str());
+                return kAccessDenied;
+            }
             break;
         }
         case 4:  // basic, times and attributes are not kept

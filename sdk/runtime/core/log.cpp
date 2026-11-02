@@ -52,7 +52,14 @@ void Init(const std::string& dir, const std::string& prefix, bool append) {
 const std::string& Path() { return g_path; }
 
 void Write(Level lv, const char* fmt, ...) {
-    if (!kVerbose && lv < Level::Error) return;
+    // mechassault-recomp patch: XBE_LOG_LEVEL=info or warn lets a release build log those levels too (to find the
+    // first unimplemented call without a debug build); the file name and line format stay the release ones
+    static const Level min = [] {
+        const char* v = std::getenv("XBE_LOG_LEVEL");
+        if (kVerbose || !v) return kVerbose ? Level::Debug : Level::Error;
+        return std::string(v) == "info" ? Level::Info : std::string(v) == "warn" ? Level::Warn : Level::Error;
+    }();
+    if (lv < min) return;
     char msg[4096];
     va_list ap;
     va_start(ap, fmt);

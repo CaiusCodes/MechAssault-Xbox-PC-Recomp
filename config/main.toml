@@ -1,2 +1,6 @@
 # Recompiler entry config: xbe_symbols output plus MechAssault's maintained additions
 includes = ["game.toml", "mechassault.toml"]
+
+[xbe]
+# development: functions logged on each call and return (x86_trace, Info level: XBE_LOG_LEVEL=info)
+trace = [0x685E0, 0x68530]

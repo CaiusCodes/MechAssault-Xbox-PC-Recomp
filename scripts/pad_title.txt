@@ -1,0 +1,5 @@
+# press Start at the title screen, then A
+13 dump
+14 start 200
+18 a 200
+22 dump

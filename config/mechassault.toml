@@ -18,5 +18,12 @@ CDirectSoundStream_FlushEx         = 0x292E40  # XbSDB 4831
 CDirectSoundStream_SetFormat       = 0x293B20  # XbSDB 4831
 D3DDevice_SetLight                 = 0x264C30  # XbSDB 4831
 D3DDevice_SetMaterial              = 0x2642E0  # XbSDB 4831
+D3DDevice_LightEnable              = 0x264E10  # ret 8; calls SetLight 0x264C30 with a default white light when unset
+
+# By hand. 4831's IDirectSoundStream_* are jmp thunks (0x2932D3..0x2932E7) into the CDirectSoundStream_* bodies;
+# 0x2932DD jumps here, whose body passes this+4 and the mix bins to CDirectSoundVoice_SetMixBinVolumes 0x29264A
+# (the same shape as CDirectSoundStream_SetMixBins 0x293074 -> CDirectSoundVoice_SetMixBins). Running the original
+# against the host's stream wrote through a null voice (guest 0x30) right after the audio banks load.
+CDirectSoundStream_SetMixBinVolumes = 0x2930C6  # ret 8
 
 [data]

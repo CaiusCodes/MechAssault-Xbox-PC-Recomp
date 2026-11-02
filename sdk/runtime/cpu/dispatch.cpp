@@ -115,6 +115,19 @@ void Init() {
     LOGI("dispatch: %zu functions over %08X..%08X", n, g_lo, g_hi);
 }
 
+// mechassault-recomp patch: the recompiled guest function whose host code holds pc (the one starting nearest below
+// it), for crash reports; 0 when none starts within 1 MB below
+uint32_t GuestFunctionAt(const void* pc) {
+    if (!g_mappings) return 0;
+    uintptr_t p = reinterpret_cast<uintptr_t>(pc), best = 0;
+    uint32_t guest = 0;
+    for (const X86FuncMapping* m = g_mappings; m->host; m++) {
+        uintptr_t h = reinterpret_cast<uintptr_t>(m->host);
+        if (h <= p && h > best) best = h, guest = m->guest;
+    }
+    return best && p - best < 0x100000 ? guest : 0;
+}
+
 X86Func* Find(uint32_t guest) {
     if (guest >= g_lo && guest < g_hi) return g_table[guest - g_lo];
     return nullptr;

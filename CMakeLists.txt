@@ -45,3 +45,10 @@ endif()
 add_xbe_image(MechAssault default.xbe main.toml ${GAME_PARTITIONS} game)
 
 # mechassault-recomp: no icon resource yet (res/ is empty); the window uses the default icon
+
+# mechassault-recomp: development builds. Relinking only the executable leaves MechAssault.dll older than it, and the
+# executable's first-start check (runtime/app/game_code.cpp) would then rebuild the DLL itself on every launch. Ninja
+# relinks the DLL after this whenever the executable's exports change, so marking it current here is safe.
+add_custom_command(TARGET MechAssault POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E touch_nocreate $<TARGET_FILE_DIR:MechAssault>/MechAssault.dll
+    VERBATIM)

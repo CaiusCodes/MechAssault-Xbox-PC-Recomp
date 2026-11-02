@@ -29,6 +29,10 @@
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
+namespace dispatch {
+uint32_t GuestFunctionAt(const void* pc);  // cpu/dispatch.cpp
+}
+
 namespace app {
 
 namespace {
@@ -44,6 +48,8 @@ LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
     if (kernel::Thread* t = kernel::Current(); e && t && t->ctx) {
         auto* r = e->ExceptionRecord;
         LOGE("exception %08lX at %p on guest thread %X", r->ExceptionCode, r->ExceptionAddress, t->id);
+        // mechassault-recomp patch: which recompiled function faulted
+        if (uint32_t fn = dispatch::GuestFunctionAt(r->ExceptionAddress)) LOGE("  in guest function %08X", fn);
         if (r->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && r->NumberParameters >= 2) {
             uint64_t va = r->ExceptionInformation[1], g = uint64_t(reinterpret_cast<uintptr_t>(kernel::g_base));
             LOGE("  %s %llX, guest %08llX", r->ExceptionInformation[0] ? "write" : "read", (unsigned long long)va,

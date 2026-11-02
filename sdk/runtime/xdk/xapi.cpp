@@ -1,5 +1,6 @@
-// XAPI functions that talk to hardware: controller ports and the hard disk cache partition
+﻿// XAPI functions that talk to hardware: controller ports and the hard disk cache partition
 #include <chrono>
+#include <cstdlib>
 
 #include "core/input.h"
 #include "xdk/hle.h"
@@ -78,6 +79,7 @@ HLE_STDCALL(XInputOpen, 4) {
     uint32_t h = mem::AllocSystem(16);
     std::lock_guard<std::mutex> lock(g_ports_lock);
     g_handles[h] = {port, 0, {}};
+    if (std::getenv("XBE_INPUTLOG")) LOGR("xapi: XInputOpen port %u -> %08X", port, h);  // mechassault-recomp patch
     return h;
 }
 
@@ -100,7 +102,15 @@ HLE_STDCALL(XInputGetState, 2) {
     if (!p.connected) return 1167;  // ERROR_DEVICE_NOT_CONNECTED
     std::lock_guard<std::mutex> lock(g_ports_lock);
     Handle& h = g_handles[a[0]];
-    if (std::memcmp(&p, &h.last, sizeof(p))) h.packet++;
+    if (std::memcmp(&p, &h.last, sizeof(p))) {
+        h.packet++;
+        // mechassault-recomp patch: XBE_INPUTLOG logs each change the title reads (first 200)
+        static const bool log = std::getenv("XBE_INPUTLOG") != nullptr;
+        static int logged = 0;
+        if (log && logged++ < 200)
+            LOGR("xapi: port %u packet %u buttons %04X A %02X B %02X lx %d ly %d", port, h.packet, p.buttons,
+                 p.analog[0], p.analog[1], p.lx, p.ly);
+    }
     h.last = p;
     uint32_t s = a[1];
     W32(s, h.packet);  // XINPUT_STATE: packet, buttons, 8 analog buttons, thumbs

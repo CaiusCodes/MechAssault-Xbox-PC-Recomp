@@ -7,6 +7,7 @@ void KeyboardPad(int port, input::Pad& pad);
 void LoadBindings(const void* table);
 void SaveBindings(void* table);
 void BindingsMenu();
+void ScriptPad(int port, input::Pad& pad);
 }
 
 namespace {
@@ -27,6 +28,12 @@ const gameimport::Profile kProfile = [] {
 }();
 
 void GameMenu() { mechassault::BindingsMenu(); }
+
+// keyboard and mouse buttons (rebindable), then a test script's presses when XBE_PAD_SCRIPT is set
+void Pad(int port, input::Pad& pad) {
+    mechassault::ScriptPad(port, pad);
+    mechassault::KeyboardPad(port, pad);
+}
 
 }  // namespace
 
@@ -49,7 +56,7 @@ const app::GameInfo app::kGame = {
     .message = nullptr,
     .ui = nullptr,
     .menu = GameMenu,
-    .pad = mechassault::KeyboardPad,  // keyboard and mouse buttons as pad 1, rebindable
+    .pad = Pad,  // keyboard and mouse buttons as pad 1, rebindable; XBE_PAD_SCRIPT for test runs
     .rumble = nullptr,
     .profile = &kProfile,
     .extras = {},
