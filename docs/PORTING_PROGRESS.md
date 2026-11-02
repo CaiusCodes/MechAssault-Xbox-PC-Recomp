@@ -53,7 +53,11 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
 10. **60 fps**: the game's clock (`0x1F0C4`) steps by measured time (average of up to 4 frames, clamped after
     loads), so 60 fps keeps game speed; a 30 vs 60 fps scripted walk ends in the same place.
 11. **True widescreen**: one `[[hook]]` in the camera build; HUD/menus stay 4:3 by the shared renderer rule.
-12. **Input**: keyboard defaults from the game's own Controls screen; mouse aim as right-stick emulation.
+12. **Input**: keyboard defaults from the game's own Controls screen. Mouse aim through the right stick, calibrated:
+    the stick dead zone (0.30) read from the pad code; the torso's response measured from the HUD compass (full stick:
+    45 degrees in 0.5 s, ~122 in 1 s, i.e. ~150 deg/s after a ~0.4 s ramp, instant stop). A first model without the
+    ramp turned 20 and 60 degrees for 45 and 90 asked; with it, 45 and 90 (`XBE_MOUSE_TEST` injects counts,
+    `runs\mouse_compass*.png`).
 13. **Settings**: the F1 menu works (opened by the script); display changes now ask to be kept and revert after 15 s.
 14. **Long run**: see "Stress run" below.
 

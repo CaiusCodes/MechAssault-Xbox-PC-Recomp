@@ -1,4 +1,4 @@
-// Mouse aiming for MechAssault, first version: the mouse drives pad 1's right stick, which the game reads as Look
+﻿// Mouse aiming for MechAssault, first version: the mouse drives pad 1's right stick, which the game reads as Look
 // up/down and Rotate left/right (the torso; its Normal thumbstick layout). The game turns the torso at a rate set by
 // the stick, so each poll the mouse counts since the last one are turned into the deflection that would turn that far
 // in the time since the last poll, past the stick's dead zone; what does not fit under full deflection carries into
@@ -11,6 +11,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 
 #include "core/input.h"
 #include "core/log.h"
@@ -37,22 +39,37 @@ namespace {
 
 std::atomic<int32_t> g_dx{0}, g_dy{0};  // raw counts the game has not taken yet
 
-// The stick model: full deflection turns the torso kFullRate degrees a second. The game's pad code (0x276C0) scales
-// each axis by 1/32768, zeroes it inside a dead zone of 0.30 (0x33D90C) and stretches the rest back to 0..1
-// ((|v| - 0.3) / 0.7), so a deflection just past 0.30 plus the share wanted gives that share of the top rate.
-// kFullRate: measured from the HUD compass after holding the right stick fully right from rest (Mission 1, 60 fps):
-// about 45 degrees after 0.5 s and 120-125 after 1 s, so about 150 degrees a second once turning, with a short
-// ramp-up from rest the mouse's carry-over absorbs.
-constexpr float kFullRate = 150.0f;
+// The stick model, from measurements: the game's pad code (0x276C0) scales each axis by 1/32768, zeroes it inside a
+// dead zone of 0.30 (0x33D90C) and stretches the rest back to 0..1 ((|v| - 0.3) / 0.7). The torso then turns at the
+// stick's share of a top rate, reached through a ramp: holding the right stick fully right from rest turned it about
+// 45 degrees in 0.5 s and 120-125 in 1 s (HUD compass, Mission 1, 60 fps), which fits a top rate of 150 degrees a
+// second reached after 0.4 s (375 deg/s^2), and it stopped when the stick was let go. Mouse turns of 45 and 90
+// degrees driven without the ramp came out at about 20 and 60, so the model below follows it.
+constexpr float kFullRate = 150.0f;   // degrees a second at full deflection
+constexpr float kRamp = 375.0f;       // degrees a second, per second
 constexpr float kDeadZone = 0.302f;
-constexpr float kMaxPending = 60.0f;  // degrees the mouse may run ahead of the torso
+constexpr float kMaxPending = 180.0f;  // degrees the mouse may run ahead of the torso
 
-// the size of the deflection that turns the pending degrees this poll (at most full), taking them off pending
-int16_t Deflection(float& pending, float dt) {
-    if (std::fabs(pending) < 0.01f || dt <= 0) return 0;
-    float use = std::min(std::fabs(pending) / (kFullRate * dt), 1.0f);  // share of the top rate this poll needs
-    pending -= std::copysign(use * kFullRate * dt, pending);
-    return int16_t((kDeadZone + use * (1.0f - kDeadZone)) * 32767.0f);
+struct Axis {
+    float pending = 0;  // degrees the mouse asked for that the torso has not turned yet
+    float rate = 0;     // the torso's rate as the model predicts it, degrees a second, signed
+};
+
+// the deflection (signed) for this poll. The game ramps the torso's rate toward the stick's share of the top rate by
+// itself, so the stick asks for the rate wanted now (all of the pending turn this poll, at most the top rate) and the
+// model follows the game's ramp to know how much it really turns; letting go stops it at once, as measured.
+int16_t Deflection(Axis& a, float dt) {
+    if (std::fabs(a.pending) < 0.05f || dt <= 0) {
+        a.rate = 0;
+        return 0;
+    }
+    float want = std::min(std::fabs(a.pending) / dt, kFullRate);
+    float from = (a.rate > 0) == (a.pending > 0) ? std::fabs(a.rate) : 0.0f;
+    float rate = std::min(want, from + kRamp * dt);  // what the torso turns at this poll
+    a.rate = std::copysign(rate, a.pending);
+    a.pending -= a.rate * dt;
+    float share = want / kFullRate;
+    return int16_t(std::copysign((kDeadZone + share * (1.0f - kDeadZone)) * 32767.0f, a.rate));
 }
 
 #ifdef _WIN32
@@ -87,33 +104,37 @@ void MouseAimPad(int port, input::Pad& pad) {
     if (port != 0) return;
     using clock = std::chrono::steady_clock;
     static clock::time_point last = clock::now();
-    static float pend_x = 0, pend_y = 0;
+    static Axis ax, ay;
     auto now = clock::now();
     float dt = std::clamp(std::chrono::duration<float>(now - last).count(), 0.0f, 0.1f);
     last = now;
     int32_t dx = g_dx.exchange(0), dy = g_dy.exchange(0);
+    // test aid: XBE_MOUSE_TEST="dx,dy,from,to" adds those counts at every poll from second from to second to (since
+    // the first poll), as if the mouse moved, for unattended runs (no real mouse movement is made)
+    static const char* test = std::getenv("XBE_MOUSE_TEST");
+    static float t_args[4] = {};
+    static bool t_on = test && std::sscanf(test, "%f,%f,%f,%f", &t_args[0], &t_args[1], &t_args[2], &t_args[3]) == 4;
+    static const clock::time_point t0 = now;
+    if (t_on) {
+        float t = std::chrono::duration<float>(now - t0).count();
+        if (t >= t_args[2] && t < t_args[3]) {
+            dx += int32_t(t_args[0]);
+            dy += int32_t(t_args[1]);
+        }
+    }
     if (!g_mouse_aim) {
-        pend_x = pend_y = 0;
+        ax = ay = {};
         return;
     }
     float k = 0.05f * float(g_mouse_sensitivity) / 100.0f;
-    pend_x = std::clamp(pend_x + float(dx) * k, -kMaxPending, kMaxPending);
+    ax.pending = std::clamp(ax.pending + float(dx) * k, -kMaxPending, kMaxPending);
     // the stick's up is positive: mouse up (negative counts) looks up unless inverted
-    pend_y = std::clamp(pend_y - float(dy) * k * (g_mouse_invert_y ? -1.0f : 1.0f), -kMaxPending, kMaxPending);
-    if (pad.rx == 0) {
-        float before = pend_x;
-        int16_t v = Deflection(pend_x, dt);
-        if (v) pad.rx = before > 0 ? int16_t(std::abs(v)) : int16_t(-std::abs(v));
-    } else {
-        pend_x = 0;
-    }
-    if (pad.ry == 0) {
-        float before = pend_y;
-        int16_t v = Deflection(pend_y, dt);
-        if (v) pad.ry = before > 0 ? int16_t(std::abs(v)) : int16_t(-std::abs(v));
-    } else {
-        pend_y = 0;
-    }
+    ay.pending = std::clamp(ay.pending - float(dy) * k * (g_mouse_invert_y ? -1.0f : 1.0f), -kMaxPending, kMaxPending);
+    // the pad's own right stick wins; the mouse's backlog is dropped
+    if (pad.rx == 0) pad.rx = Deflection(ax, dt);
+    else ax = {};
+    if (pad.ry == 0) pad.ry = Deflection(ay, dt);
+    else ay = {};
 }
 
 // the game window is up: raw mouse input to it
