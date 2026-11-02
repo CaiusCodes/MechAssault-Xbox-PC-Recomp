@@ -205,6 +205,131 @@ float4 psmain(O i) : SV_Target {
 }
 )";
 
+// mechassault-recomp patch: FSR 1 upscaling when the frame is smaller than the picture on screen. This is an own
+// HLSL implementation of AMD FidelityFX Super Resolution 1's published algorithm, not AMD's ffx_fsr1.h: EASU, the
+// edge-adaptive upscale (12 taps around the output pixel; the luma gradients of the four nearest texels give an edge
+// direction and how strongly it is an edge; a Lanczos-like kernel, approximated by polynomials, is stretched along
+// the edge and narrowed across it; the result is clamped to the four nearest texels against ringing), then RCAS, the
+// robust contrast-adaptive sharpening (a cross of five texels; the sharpening lobe is limited so no channel leaves
+// the neighbours' range, and lowered on noise). p0: input width, height, output width, height.
+const char* kEasuHlsl = R"(
+cbuffer B : register(b1) { float4 p0; float4 p1; };
+Texture2D img : register(t0);
+struct O { float4 p : SV_Position; float2 uv : TEXCOORD0; };
+O vs(uint id : SV_VertexID) {
+    O o;
+    float2 t = float2((id << 1) & 2, id & 2);
+    o.p = float4(t * float2(2, -2) + float2(-1, 1), 0, 1);
+    o.uv = t;
+    return o;
+}
+float3 T(int2 p) { return img.Load(int3(clamp(p, int2(0, 0), int2(p0.xy) - 1), 0)).rgb; }
+float Luma(float3 c) { return c.b * 0.5 + (c.r * 0.5 + c.g); }
+void Set(inout float2 dir, inout float len, float w, float lA, float lB, float lC, float lD, float lE) {
+    float dc = lD - lC, cb = lC - lB;
+    float lenX = max(abs(dc), abs(cb));
+    lenX = lenX > 0 ? 1 / lenX : 0;
+    float dirX = lD - lB;
+    dir.x += dirX * w;
+    lenX = saturate(abs(dirX) * lenX);
+    len += lenX * lenX * w;
+    float ec = lE - lC, ca = lC - lA;
+    float lenY = max(abs(ec), abs(ca));
+    lenY = lenY > 0 ? 1 / lenY : 0;
+    float dirY = lE - lA;
+    dir.y += dirY * w;
+    lenY = saturate(abs(dirY) * lenY);
+    len += lenY * lenY * w;
+}
+void Tap(inout float3 ac, inout float aw, float2 off, float2 dir, float2 len2, float lob, float clp, float3 c) {
+    float2 v = float2(off.x * dir.x + off.y * dir.y, off.x * -dir.y + off.y * dir.x) * len2;
+    float d2 = min(v.x * v.x + v.y * v.y, clp);
+    float wB = 0.4 * d2 - 1, wA = lob * d2 - 1;
+    wB *= wB;
+    wA *= wA;
+    wB = 1.5625 * wB - 0.5625;
+    float w = wB * wA;
+    ac += c * w;
+    aw += w;
+}
+float4 psmain(O i) : SV_Target {
+    float2 pp = i.p.xy * (p0.xy / p0.zw) - 0.5;
+    float2 fp = floor(pp);
+    pp -= fp;
+    int2 f0 = int2(fp);
+    float3 b = T(f0 + int2(0, -1)), c = T(f0 + int2(1, -1));
+    float3 e = T(f0 + int2(-1, 0)), f = T(f0), g = T(f0 + int2(1, 0)), h = T(f0 + int2(2, 0));
+    float3 ii = T(f0 + int2(-1, 1)), j = T(f0 + int2(0, 1)), k = T(f0 + int2(1, 1)), l = T(f0 + int2(2, 1));
+    float3 n = T(f0 + int2(0, 2)), o = T(f0 + int2(1, 2));
+    float bL = Luma(b), cL = Luma(c), eL = Luma(e), fL = Luma(f), gL = Luma(g), hL = Luma(h);
+    float iL = Luma(ii), jL = Luma(j), kL = Luma(k), lL = Luma(l), nL = Luma(n), oL = Luma(o);
+    float2 dir = 0;
+    float len = 0;
+    Set(dir, len, (1 - pp.x) * (1 - pp.y), bL, eL, fL, gL, jL);
+    Set(dir, len, pp.x * (1 - pp.y), cL, fL, gL, hL, kL);
+    Set(dir, len, (1 - pp.x) * pp.y, fL, iL, jL, kL, nL);
+    Set(dir, len, pp.x * pp.y, gL, jL, kL, lL, oL);
+    float dirR = dir.x * dir.x + dir.y * dir.y;
+    bool zro = dirR < 1.0 / 32768.0;
+    dirR = zro ? 1 : rsqrt(dirR);
+    dir.x = zro ? 1 : dir.x;
+    dir *= dirR;
+    len = len * 0.5;
+    len *= len;
+    float stretch = (dir.x * dir.x + dir.y * dir.y) / max(abs(dir.x), abs(dir.y));
+    float2 len2 = float2(1 + (stretch - 1) * len, 1 - 0.5 * len);
+    float lob = 0.5 + ((1.0 / 4.0 - 0.04) - 0.5) * len;
+    float clp = 1 / lob;
+    float3 ac = 0;
+    float aw = 0;
+    Tap(ac, aw, float2(0, -1) - pp, dir, len2, lob, clp, b);
+    Tap(ac, aw, float2(1, -1) - pp, dir, len2, lob, clp, c);
+    Tap(ac, aw, float2(-1, 1) - pp, dir, len2, lob, clp, ii);
+    Tap(ac, aw, float2(0, 1) - pp, dir, len2, lob, clp, j);
+    Tap(ac, aw, float2(0, 0) - pp, dir, len2, lob, clp, f);
+    Tap(ac, aw, float2(-1, 0) - pp, dir, len2, lob, clp, e);
+    Tap(ac, aw, float2(1, 1) - pp, dir, len2, lob, clp, k);
+    Tap(ac, aw, float2(2, 1) - pp, dir, len2, lob, clp, l);
+    Tap(ac, aw, float2(2, 0) - pp, dir, len2, lob, clp, h);
+    Tap(ac, aw, float2(1, 0) - pp, dir, len2, lob, clp, g);
+    Tap(ac, aw, float2(1, 2) - pp, dir, len2, lob, clp, o);
+    Tap(ac, aw, float2(0, 2) - pp, dir, len2, lob, clp, n);
+    float3 mn = min(min(f, g), min(j, k)), mx = max(max(f, g), max(j, k));
+    return float4(clamp(ac / aw, mn, mx), 1);
+}
+)";
+
+// p0.x: the sharpening amount, 2^-stops (1 the most); p0.yz the size
+const char* kRcasHlsl = R"(
+cbuffer B : register(b1) { float4 p0; float4 p1; };
+Texture2D img : register(t0);
+struct O { float4 p : SV_Position; float2 uv : TEXCOORD0; };
+O vs(uint id : SV_VertexID) {
+    O o;
+    float2 t = float2((id << 1) & 2, id & 2);
+    o.p = float4(t * float2(2, -2) + float2(-1, 1), 0, 1);
+    o.uv = t;
+    return o;
+}
+float3 T(int2 p) { return img.Load(int3(clamp(p, int2(0, 0), int2(p0.yz) - 1), 0)).rgb; }
+float4 psmain(O i) : SV_Target {
+    int2 q = int2(i.p.xy);
+    float3 b = T(q + int2(0, -1)), d = T(q + int2(-1, 0)), e = T(q), f = T(q + int2(1, 0)), h = T(q + int2(0, 1));
+    float3 mn4 = min(min(b, d), min(f, h)), mx4 = max(max(b, d), max(f, h));
+    float3 hitMin = min(mn4, e) / (4 * mx4 + 1e-5);
+    float3 hitMax = (1 - max(mx4, e)) / (4 * mn4 - 4 - 1e-5);
+    float3 lobeRGB = max(-hitMin, hitMax);
+    float lobe = max(-(0.25 - 1.0 / 16.0), min(max(lobeRGB.r, max(lobeRGB.g, lobeRGB.b)), 0)) * p0.x;
+    float bL = b.b * 0.5 + (b.r * 0.5 + b.g), dL = d.b * 0.5 + (d.r * 0.5 + d.g), eL = e.b * 0.5 + (e.r * 0.5 + e.g);
+    float fL = f.b * 0.5 + (f.r * 0.5 + f.g), hL = h.b * 0.5 + (h.r * 0.5 + h.g);
+    float nz = 0.25 * (bL + dL + fL + hL) - eL;
+    float range = max(max(max(bL, dL), max(eL, fL)), hL) - min(min(min(bL, dL), min(eL, fL)), hL);
+    nz = saturate(abs(nz) / max(range, 1e-5));
+    lobe *= -0.5 * nz + 1;
+    return float4((lobe * (b + d + h + f) + e) / (4 * lobe + 1), 1);
+}
+)";
+
 // Depth is reversed in a 32 bit float buffer: 1 at the near clip, 0 at the far one, where a float keeps its finest
 // steps; a 24 bit buffer storing z / w lost the steps that told distant surfaces apart
 constexpr DXGI_FORMAT kDepthTypeless = DXGI_FORMAT_R32G8X24_TYPELESS;
@@ -689,6 +814,11 @@ private:
     // breakdown-recomp patch: the anti-aliased copy of the frame, null when off or unavailable
     ID3D12Resource* AntiAlias(Target& t);
     bool EnsureAaTarget(uint32_t w, uint32_t h);
+    // mechassault-recomp patch: the frame upscaled with FSR 1 to the picture's size on screen, null when off or not
+    // upscaling
+    ID3D12Resource* Upscale(ID3D12Resource* frame, DXGI_FORMAT fmt);
+    bool EnsureFsrTargets(uint32_t w, uint32_t h);
+    void PictureSize(float& vw, float& vh);
     void RenderUi();
     void ReleaseOldTextures();
     void ResetFrame();
@@ -837,6 +967,11 @@ private:
     ComPtr<ID3D12Resource> aa_;  // breakdown-recomp patch: the anti-aliased frame
     D3D12_RESOURCE_STATES aa_state_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     uint32_t aa_w_ = 0, aa_h_ = 0, aa_rtv_ = UINT32_MAX;
+    // mechassault-recomp patch: FSR 1's two passes at the picture's size on screen (EASU's result, then RCAS's)
+    ComPtr<ID3D12Resource> fsr_[2];
+    D3D12_RESOURCE_STATES fsr_state_[2] = {D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                                           D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE};
+    uint32_t fsr_w_ = 0, fsr_h_ = 0, fsr_rtv_[2] = {UINT32_MAX, UINT32_MAX};
     uint8_t ramp_[768] = {};
     bool ramp_dirty_ = false;
     bool gamma_ = false;
@@ -3459,14 +3594,21 @@ void D3D12Backend::UploadGammaRamp() {
 }
 
 // res: the frame, h tall, in the pixel shader resource state
-void D3D12Backend::BlitFrame(ID3D12Resource* res, DXGI_FORMAT fmt, uint32_t h_src) {
-    // breakdown-recomp patch: the aspect ratio setting: 4:3, 16:9, or the window's own shape
+// breakdown-recomp patch: the aspect ratio setting: 4:3, 16:9, or the window's own shape
+void D3D12Backend::PictureSize(float& vw, float& vh) {
     float w = float(bb_w_);
     float h = float(bb_h_);
     float aspect = app::PictureAspect();
     if (aspect <= 0) aspect = w / std::max(h, 1.0f);
-    float vw = std::min(w, h * aspect);
-    float vh = vw / aspect;
+    vw = std::min(w, h * aspect);
+    vh = vw / aspect;
+}
+
+void D3D12Backend::BlitFrame(ID3D12Resource* res, DXGI_FORMAT fmt, uint32_t h_src) {
+    float w = float(bb_w_);
+    float h = float(bb_h_);
+    float vw, vh;
+    PictureSize(vw, vh);
     float uv[4] = {0, 0, 1, 1};
     D3D12_VIEWPORT vp{(w - vw) / 2, (h - vh) / 2, vw, vh, 0, 1};
     D3D12_RECT scissor{0, 0, LONG(bb_w_), LONG(bb_h_)};
@@ -3518,6 +3660,63 @@ ID3D12Resource* D3D12Backend::AntiAlias(Target& t) {
     return aa_.Get();
 }
 
+bool D3D12Backend::EnsureFsrTargets(uint32_t w, uint32_t h) {
+    if (fsr_[0] && fsr_[1] && fsr_w_ == w && fsr_h_ == h) return true;
+    for (int i = 0; i < 2; i++) {
+        if (fsr_[i]) CurrentFrame().garbage.push_back(fsr_[i]);
+        fsr_[i].Reset();
+        if (fsr_rtv_[i] == UINT32_MAX) {
+            if (free_rtv_.empty()) return false;
+            fsr_rtv_[i] = free_rtv_.back();
+            free_rtv_.pop_back();
+        }
+        D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_DEFAULT};
+        D3D12_RESOURCE_DESC td = Texture2DDesc(kBgra, w, h);
+        td.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        fsr_state_[i] = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        if (FAILED(dev_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td, fsr_state_[i], nullptr,
+                                                 IID_PPV_ARGS(&fsr_[i])))) {
+            LOG_FIRST(1, "d3d12: no %ux%u targets for FSR", w, h);
+            return false;
+        }
+        dev_->CreateRenderTargetView(fsr_[i].Get(), nullptr, Cpu(rtv_heap_.Get(), fsr_rtv_[i], rtv_inc_));
+    }
+    fsr_w_ = w;
+    fsr_h_ = h;
+    return true;
+}
+
+ID3D12Resource* D3D12Backend::Upscale(ID3D12Resource* frame, DXGI_FORMAT fmt) {
+    const app::Settings& s = app::Get();
+    if (s.upscaler != 1 || !frame) return nullptr;
+    D3D12_RESOURCE_DESC d = frame->GetDesc();
+    float vw, vh;
+    PictureSize(vw, vh);
+    uint32_t w = uint32_t(vw + 0.5f), h = uint32_t(vh + 0.5f);
+    // only when the picture is shown larger than it was rendered; a larger render is averaged down instead
+    if (!w || !h || h <= d.Height + d.Height / 50 || !EnsureFsrTargets(w, h)) return nullptr;
+    if (!EnsurePassPipeline(kEasuHlsl, "psmain", kBgra, -1) || !EnsurePassPipeline(kRcasHlsl, "psmain", kBgra, -1)) {
+        LOG_FIRST(1, "d3d12: FSR shaders did not compile, upscaling bilinear");
+        return nullptr;
+    }
+    LOG_FIRST(1, "d3d12: FSR 1 upscaling %ux%u to %ux%u", uint32_t(d.Width), d.Height, w, h);
+    ID3D12Resource* src[3] = {frame, nullptr, nullptr};
+    DXGI_FORMAT f[3] = {fmt, kBgra, kBgra};
+    float p[8] = {float(d.Width), float(d.Height), float(w), float(h), 0, 0, 0, 0};
+    Transition(fsr_[0].Get(), fsr_state_[0], D3D12_RESOURCE_STATE_RENDER_TARGET);
+    Pass(kEasuHlsl, "psmain", kBgra, Cpu(rtv_heap_.Get(), fsr_rtv_[0], rtv_inc_), w, h, src, f, p, -1);
+    Transition(fsr_[0].Get(), fsr_state_[0], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    // sharpness setting: 0 (none) .. 20, in tenths of FSR's stops below the strongest (0 stops)
+    float stops = 2.0f - std::min(s.fsr_sharpness, 20u) / 10.0f;
+    float r[8] = {s.fsr_sharpness ? std::exp2(-stops) : 0.0f, float(w), float(h), 0, 0, 0, 0, 0};
+    src[0] = fsr_[0].Get();
+    f[0] = kBgra;
+    Transition(fsr_[1].Get(), fsr_state_[1], D3D12_RESOURCE_STATE_RENDER_TARGET);
+    Pass(kRcasHlsl, "psmain", kBgra, Cpu(rtv_heap_.Get(), fsr_rtv_[1], rtv_inc_), w, h, src, f, r, -1);
+    Transition(fsr_[1].Get(), fsr_state_[1], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    return fsr_[1].Get();
+}
+
 void D3D12Backend::RenderUi() {
     std::lock_guard lock(app::UiLock());
     ImGui_ImplDX12_NewFrame();
@@ -3540,6 +3739,12 @@ void D3D12Backend::DrawFrame(Target* t, uint32_t bi) {
             Transition(t->res.Get(), t->state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             frame = t->res.Get();
             frame_fmt = t->fmt;
+        }
+        // mechassault-recomp patch: FSR 1 when the picture is shown larger than it was rendered (also before the
+        // back buffer is bound)
+        if (ID3D12Resource* up = Upscale(frame, frame_fmt)) {
+            frame = up;
+            frame_fmt = kBgra;
         }
     }
     D3D12_RESOURCE_STATES bs = D3D12_RESOURCE_STATE_PRESENT;

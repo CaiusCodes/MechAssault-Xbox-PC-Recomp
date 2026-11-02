@@ -428,6 +428,18 @@ void Menu() {
                                  {{"As the game asks", 0}, {"2x", 2}, {"4x", 4}, {"8x", 8}, {"16x", 16}}))
                 Changed();
             if (Choice<uint32_t>("Anti-aliasing", s.anti_aliasing, {{"Off", 0}, {"FXAA", 1}})) Changed();
+            // mechassault-recomp patch: FSR 1 (own implementation of its algorithm) for a render smaller than the
+            // picture on screen
+            if (Choice<uint32_t>("Upscaling", s.upscaler, {{"Bilinear", 0}, {"FSR 1", 1}})) Changed();
+            if (s.upscaler == 1) {
+                int sharp = int(s.fsr_sharpness);
+                if (ImGui::SliderInt("FSR sharpening", &sharp, 0, 20)) {
+                    s.fsr_sharpness = uint32_t(sharp);
+                    Changed();
+                }
+                ImGui::TextDisabled("Used when the render scale is below your screen's resolution (for example 1x on "
+                                    "a 1440p screen); Auto and higher scales never upscale.");
+            }
             ImGui::TextDisabled("A render scale above your display's resolution also smooths edges (supersampling).");
         }
         if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -457,6 +469,8 @@ void Menu() {
             s.anti_aliasing = d.anti_aliasing;
             s.refresh_hz = d.refresh_hz;
             s.aspect_ratio = d.aspect_ratio;
+            s.upscaler = d.upscaler;
+            s.fsr_sharpness = d.fsr_sharpness;
             Changed(true);
         }
         ImGui::SameLine();

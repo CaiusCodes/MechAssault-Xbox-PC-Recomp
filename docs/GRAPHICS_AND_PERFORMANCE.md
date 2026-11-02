@@ -50,7 +50,21 @@ Reused from Breakdown unchanged: the console's 640x480 targets are created on th
 real internal resolution change (more pixels rendered), not an upscale of a 640x480 image. Switching is live (targets
 are recreated on the next frame; the game session is untouched).
 
-BENCHMARK_TABLE
+Measured in Mission 1 (scripted walk, `scriptsench_scales.ps1`, 1280x960 window, 4:3):
+
+| Render scale (internal size) | AA | 60 fps cap: avg / 1% low / p99 / worst | Uncapped (V-Sync off): avg fps, frame time |
+|---|---|---|---|
+| 1x (640x480) | FXAA | 60.00 / 57.7-58.0 / 17.2 ms / 17.5 ms | 746-862 fps, 1.16-1.34 ms |
+| 2x (1280x960) | FXAA | 60.00 / 57.4-57.7 / 17.2 ms / 17.7 ms | 741-848 fps, 1.18-1.35 ms |
+| 3x (1920x1440) | FXAA | 60.00 / 58.3 / 17.1 ms / 17.6 ms | 715-809 fps, 1.24-1.40 ms |
+| 4x (2560x1920) | FXAA | 60.00 / 57.8-58.2 / 17.1 ms / 17.5 ms | 684-780 fps, 1.28-1.46 ms |
+| 4x | off | | 711-816 fps, 1.23-1.41 ms |
+| 2x | off | 60.00 / 57.2-57.8 / 17.4 ms / 17.6 ms | |
+
+So on this PC the game is nowhere near GPU-bound: 4x costs about 0.1 ms a frame over 1x, FXAA at 4x about 0.05 ms,
+and the renderer's own CPU time stays 0.47-0.62 ms. Uncapped the game ran at 700-860 fps, which says the
+renderer/runtime overhead per frame is about 1.2 ms in total; the game was not checked for correctness at such
+rates (its clock allows them; the default cap is 60). Low-end GPUs were not available to test.
 
 ## Anti-aliasing
 
@@ -65,10 +79,25 @@ BENCHMARK_TABLE
 ## FSR
 
 Breakdown has **no FSR implementation** (its `enhancements-plan.md` lists FSR 1 as planned; there is no FSR code in
-`sdk/`). Nothing was faked into the menu. Plan: AMD FidelityFX FSR 1 (EASU upscale + RCAS sharpen, MIT licence) as a
-pass in the D3D12 present path when the render is smaller than the window (render scale 1x at 1440p, for example),
-with a sharpness setting and Auto = on only when upscaling. It needs AMD's shader source (MIT) added to `sdk/` with
-its licence, which this session did not download.
+its `sdk/`), so there was nothing proven to reuse. This session added **FSR 1** to the shared D3D12 present path
+(`sdk/runtime/gpu/d3d12.cpp`, `kEasuHlsl`/`kRcasHlsl`, `Upscale()`), written from AMD's published description of the
+algorithm, not AMD's `ffx_fsr1.h` (which this session did not download):
+
+- **EASU**: per output pixel, 12 input texels; luma gradients of the four nearest texels give the edge direction and
+  strength; a Lanczos-like kernel (polynomial approximation) stretched along the edge and narrowed across it; the
+  result clamped to the four nearest texels (no ringing).
+- **RCAS**: sharpening on a 5-texel cross, its lobe limited so no channel leaves the neighbours' range, and reduced
+  on noise.
+
+When: only when the picture is shown larger than it was rendered (render scale 1x-3x below the screen's resolution;
+Auto never upscales). F1 > Rendering > Upscaling: Bilinear or FSR 1 (default), and "FSR sharpening" 0-20 (tenths of
+FSR's stops; 18 = FSR's usual 0.2 stops, 0 = off). Live, no restart. FXAA, when on, runs before it at the render
+size.
+
+Checked: 640x480 (1x) to 1280x960 in Mission 1: the log says "FSR 1 upscaling 640x480 to 1280x960", 60.00 fps, 1%
+low 57.3 (same as bilinear); edges visibly crisper than bilinear with no halos or ringing in a 2x zoom
+(`runssr_compare.png`: bilinear left, FSR right). Not compared against AMD's reference output, so treat it as
+"FSR 1 algorithm, own implementation".
 
 ## Widescreen and ultrawide
 

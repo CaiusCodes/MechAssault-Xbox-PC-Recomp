@@ -14,25 +14,11 @@ bool MouseMessage(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t*
 void MouseMenu();
 extern bool g_mouse_aim;
 extern uint32_t g_mouse_sensitivity;
+const gameimport::Profile& Profile();  // src/common/profile.cpp
 extern bool g_mouse_invert_y;
 }
 
 namespace {
-
-// the setup screen's check of the player's copy: MechAssault (USA, Europe), the release this build was recompiled from
-const gameimport::Profile kProfile = [] {
-    gameimport::Profile p;
-    p.name = "MechAssault";
-    p.title_id = 0x4D530017;  // "MS" 023
-    p.xbe_sha1 = {"682ddd1ecda1e5110f9339dab0c31d296d51777b"};
-    p.required = {"default.xbe", "Common.mgf", "text.mgf", "movies.mgf", "Audio/Music.d1Bank", "Audio/SFX.d1Bank",
-                  "Audio/SFX_English.d1Bank", "media/ArialUni.Ttf", "media/dlcustom.xpr", "Movie/NTSC/MAIntro.bik"};
-    for (const char* m : {"01", "02", "03", "04", "05", "06a", "06b", "07a", "07b", "09", "10", "12", "13", "15a",
-                          "15b", "17", "18", "19", "20a", "20B"})
-        p.required.push_back(std::string("Mission") + m + ".mgf");
-    p.required_dirs = {"Audio", "media", "Movie/NTSC", "Movie/PAL"};
-    return p;
-}();
 
 void GameMenu() { mechassault::MouseMenu(); }
 
@@ -68,7 +54,7 @@ const app::GameInfo app::kGame = {
     .menu = GameMenu,
     .pad = Pad,  // keyboard and mouse buttons as pad 1, rebindable; XBE_PAD_SCRIPT for test runs
     .rumble = nullptr,
-    .profile = &kProfile,
+    .profile = &mechassault::Profile(),  // src/common/profile.cpp
     .extras = {{L"Mouse aim", L"Turn the torso and aim with the mouse. The keyboard and a controller always work too.",
                 &mechassault::g_mouse_aim}},
     .controls = L"Mouse aim · WASD move · Left click fire · Right click or Q cycle weapons · "

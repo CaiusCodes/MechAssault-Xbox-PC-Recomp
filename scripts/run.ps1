@@ -21,7 +21,8 @@ if ($Keys) { foreach ($k in $Keys.Split(",")) { $a = $k.Split(":"); $pending += 
 $p = Start-Process -FilePath (Join-Path $root $Exe) -WorkingDirectory (Split-Path (Join-Path $root $Exe)) -PassThru
 $t0 = Get-Date; $i = 0
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds -and -not $p.HasExited) {
-    Start-Sleep -Seconds $Every; $p.Refresh(); $h = $p.MainWindowHandle
+    $left = $Seconds - ((Get-Date) - $t0).TotalSeconds
+    Start-Sleep -Milliseconds ([int](1000 * [math]::Max(0.2, [math]::Min($Every, $left)))); $p.Refresh(); $h = $p.MainWindowHandle
     $now = ((Get-Date) - $t0).TotalSeconds
     $gw = [W]::FindWindow($null, "MechAssault"); if ($gw -ne [IntPtr]::Zero) { $h = $gw }
     if ($h) { foreach ($e in $pending) { if ($e[0] -ge 0 -and $now -ge $e[0]) {

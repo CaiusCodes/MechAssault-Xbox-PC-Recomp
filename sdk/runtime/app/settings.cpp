@@ -62,6 +62,8 @@ void Load() {
     s.anti_aliasing = std::min(t["anti_aliasing"].value_or(s.anti_aliasing), 1u);
     s.refresh_hz = std::min(t["refresh_rate"].value_or(s.refresh_hz), 1000u);
     s.aspect_ratio = std::min(t["aspect_ratio"].value_or(s.aspect_ratio), kAspectFill);
+    s.upscaler = std::min(t["upscaler"].value_or(s.upscaler), 1u);  // mechassault-recomp patch: FSR
+    s.fsr_sharpness = std::min(t["fsr_sharpness"].value_or(s.fsr_sharpness), 20u);
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
         else *o.value = t[o.key].value_or(*o.value);
@@ -91,7 +93,9 @@ toml::table Table() {
                   {"vblank_sync", int64_t(s.vblank_sync)},
                   {"anti_aliasing", int64_t(s.anti_aliasing)},
                   {"refresh_rate", int64_t(s.refresh_hz)},
-                  {"aspect_ratio", int64_t(s.aspect_ratio)}};
+                  {"aspect_ratio", int64_t(s.aspect_ratio)},
+                  {"upscaler", int64_t(s.upscaler)},
+                  {"fsr_sharpness", int64_t(s.fsr_sharpness)}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));
