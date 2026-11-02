@@ -67,7 +67,7 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
     outside OneDrive (session temp folder) with the game beside it, run with `XBE_SETUP_TEST=1` (no shortcut,
     windowed, Play pressed by itself): the setup found and checked the game (0.4 s), imported it (66 s), built the
     game code on the spot (64 files, 13 s with 16 compilers), started it, and the pad script played into Mission 1
-    with the default settings (Widescreen at 3456x1460: `runs\e2e3	.png`). The first attempt crashed in
+    with the default settings (Widescreen at 3456x1460: `runs\e2e3\011.png`). The first attempt crashed in
     DirectSound, which exposed the shared bug that player-side builds ignored `main.toml` (KNOWN_ISSUES.md); fixed.
     The test copy was deleted afterwards.
 
