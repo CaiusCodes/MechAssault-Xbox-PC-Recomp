@@ -15,6 +15,9 @@ game layer, "Project" = build, tools, packaging.
 | Dev builds rebuilt `MechAssault.dll` with 16 compilers on every launch after an executable-only relink | Project | CMake post-build marks the DLL current (Ninja still relinks it whenever the executable's exports change) |
 | Release builds silently dropped Info and Warn log lines | Shared | `XBE_LOG_LEVEL=info` or `warn` |
 | The F1 menu was titled "Breakdown PC settings" | Shared | uses `GameInfo::short_title` |
+| A new display mode could not be undone if the display could not show it | Shared | keep-or-revert prompt, reverts after 15 s |
+| No FSR | Shared | FSR 1 (EASU + RCAS) in the present path, used when upscaling |
+| Mouse turns came out short (20 and 60 degrees for 45 and 90) | Game | the mouse model follows the game's measured torso ramp; now 45 and 90 |
 
 ## Open
 

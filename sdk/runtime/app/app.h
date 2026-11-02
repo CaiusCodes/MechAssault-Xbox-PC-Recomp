@@ -42,6 +42,7 @@ struct Settings {
     // mechassault-recomp patch: 0 bilinear, 1 FSR 1 (EASU + RCAS) when the picture is shown larger than rendered;
     // sharpness 0 (off) .. 20 (strongest), in tenths of FSR's stops
     uint32_t upscaler = 1;
+    uint32_t brightness = 100;  // mechassault-recomp patch: a gamma curve over the picture, percent (50..200)
     uint32_t fsr_sharpness = 18;
     uint32_t aspect_ratio = kAspectWide;  // the picture: kAspect43, kAspectWide (a wider view in the display's shape,
                                           // WideView), kAspect169 or kAspectFill (the 4:3 picture stretched; they
@@ -67,6 +68,10 @@ struct Mode {
 Mode Desktop();
 Mode Output();
 float RenderScale(uint32_t guest_height);
+// mechassault-recomp patch: the renderer found an integrated GPU (little dedicated memory): render scale Auto stays at
+// or below 2x there (measured: an AMD Radeon iGPU held 60 fps at 2x with room to spare, 3x had stalls uncapped)
+void SetLowEndGpu(bool low);
+bool LowEndGpu();
 // breakdown-recomp patch: the console reports a widescreen TV (aspect_ratio 16:9, or the display's shape when it is
 // 3:2 or wider), else a 4:3 one
 bool Widescreen();

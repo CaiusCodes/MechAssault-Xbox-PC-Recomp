@@ -974,6 +974,8 @@ private:
     uint32_t fsr_w_ = 0, fsr_h_ = 0, fsr_rtv_[2] = {UINT32_MAX, UINT32_MAX};
     uint8_t ramp_[768] = {};
     bool ramp_dirty_ = false;
+    bool ramp_set_ = false;               // mechassault-recomp patch: the title has set a ramp (else identity)
+    uint32_t brightness_applied_ = 100;   // mechassault-recomp patch: app::Settings::brightness in the ramp
     bool gamma_ = false;
     Target* bound_rt_ = nullptr;
     Target* bound_ds_ = nullptr;
@@ -1055,7 +1057,12 @@ bool D3D12Backend::CreateDevice() {
     ComPtr<IDXGIFactory6> f6;
     ComPtr<IDXGIAdapter1> adapter;
     if (SUCCEEDED(factory_.As(&f6))) {
-        f6->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter));
+        // mechassault-recomp patch: XBE_GPU=low picks the power-saving GPU (an integrated one), to measure low-end
+        // hardware on a PC that has both
+        const char* pick = std::getenv("XBE_GPU");
+        bool low = pick && std::string(pick) == "low";
+        f6->EnumAdapterByGpuPreference(0, low ? DXGI_GPU_PREFERENCE_MINIMUM_POWER : DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+                                       IID_PPV_ARGS(&adapter));
     }
     if (FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev_))) &&
         FAILED(D3D12CreateDevice((adapter = nullptr).Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&dev_)))) {
@@ -1065,6 +1072,12 @@ bool D3D12Backend::CreateDevice() {
     DXGI_ADAPTER_DESC1 ad{};
     if (adapter) adapter->GetDesc1(&ad);
     LOGR("D3D12 adapter: %ls", adapter ? ad.Description : L"default");
+    // mechassault-recomp patch: under 1 GB of its own memory is an integrated GPU: Auto render scale stays at 2x or less
+    if (adapter && ad.DedicatedVideoMemory < (1ull << 30)) {
+        app::SetLowEndGpu(true);
+        LOGR("D3D12: integrated GPU (%llu MB dedicated), render scale Auto at most 2x",
+             (unsigned long long)(ad.DedicatedVideoMemory >> 20));
+    }
     D3D12_COMMAND_QUEUE_DESC qd{};
     qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     dev_->CreateCommandQueue(&qd, IID_PPV_ARGS(&queue_));
@@ -3576,13 +3589,20 @@ void D3D12Backend::UploadGammaRamp() {
     ramp_dirty_ = false;
     Alloc a = Upload(kRampBytes + D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
     bool identity = true;
+    // mechassault-recomp patch: the brightness setting bends the title's ramp (or the identity) by a gamma curve
+    uint32_t bright = brightness_applied_;
+    auto out = [&](int channel, int i) -> uint8_t {
+        int v = ramp_set_ ? ramp_[channel + i] : i;
+        if (bright == 100) return uint8_t(v);
+        return uint8_t(std::lround(255.0 * std::pow(v / 255.0, 100.0 / bright)));
+    };
     for (int i = 0; i < 256; i++) {
         uint8_t* p = a.cpu + i * 4;
-        p[0] = ramp_[kRampBlue + i];
-        p[1] = ramp_[kRampGreen + i];
-        p[2] = ramp_[kRampRed + i];
+        p[0] = out(kRampBlue, i);
+        p[1] = out(kRampGreen, i);
+        p[2] = out(kRampRed, i);
         p[3] = 255;
-        identity &= ramp_[kRampRed + i] == i && ramp_[kRampGreen + i] == i && ramp_[kRampBlue + i] == i;
+        identity &= p[2] == i && p[1] == i && p[0] == i;
     }
     gamma_ = !identity;
     Transition(lut_.Get(), lut_state_, D3D12_RESOURCE_STATE_COPY_DEST);
@@ -3850,6 +3870,10 @@ void D3D12Backend::Present(const Surface& front) {
     Target* t = EnsureTarget(front, false);
     if (t && LatchCpuWrite(*t)) UploadTarget(*t, front);
     if (t) Resolve(*t);
+    if (uint32_t b = app::Get().brightness; b != brightness_applied_) {  // mechassault-recomp patch
+        brightness_applied_ = b;
+        ramp_dirty_ = true;
+    }
     if (ramp_dirty_) UploadGammaRamp();
     Transition(lut_.Get(), lut_state_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 
@@ -4187,6 +4211,7 @@ void D3D12Backend::Capture(Target& t, const char* tag, float mul) {
 
 void D3D12Backend::SetGamma(const uint8_t* ramp) {
     std::memcpy(ramp_, ramp, sizeof(ramp_));
+    ramp_set_ = true;
     ramp_dirty_ = true;
 }
 

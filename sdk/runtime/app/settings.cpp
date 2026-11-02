@@ -64,6 +64,7 @@ void Load() {
     s.aspect_ratio = std::min(t["aspect_ratio"].value_or(s.aspect_ratio), kAspectFill);
     s.upscaler = std::min(t["upscaler"].value_or(s.upscaler), 1u);  // mechassault-recomp patch: FSR
     s.fsr_sharpness = std::min(t["fsr_sharpness"].value_or(s.fsr_sharpness), 20u);
+    s.brightness = std::clamp(t["brightness"].value_or(s.brightness), 50u, 200u);
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
         else *o.value = t[o.key].value_or(*o.value);
@@ -95,7 +96,8 @@ toml::table Table() {
                   {"refresh_rate", int64_t(s.refresh_hz)},
                   {"aspect_ratio", int64_t(s.aspect_ratio)},
                   {"upscaler", int64_t(s.upscaler)},
-                  {"fsr_sharpness", int64_t(s.fsr_sharpness)}};
+                  {"fsr_sharpness", int64_t(s.fsr_sharpness)},
+                  {"brightness", int64_t(s.brightness)}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));
@@ -190,6 +192,12 @@ float WideView() {
     return std::clamp(float(m.width) / float(m.height) / (4.0f / 3.0f), 1.0f, 8.0f / 3.0f);
 }
 
+namespace {
+std::atomic<bool> g_low_end{false};
+}
+void SetLowEndGpu(bool low) { g_low_end = low; }
+bool LowEndGpu() { return g_low_end; }
+
 float RenderScale(uint32_t guest_height) {
     // breakdown-recomp patch: an integer multiple of the title's own resolution
     if (uint32_t n = Get().render_scale) return float(std::min(n, kMaxRenderScale));
@@ -199,7 +207,8 @@ float RenderScale(uint32_t guest_height) {
     float aspect = PictureAspect();
     float shown_w = aspect > 0 ? std::min(float(m.width), m.height * aspect) : float(m.width);
     float h = std::max(float(m.height), shown_w * 0.75f) * (Get().render_percent / 100.0f);
-    return guest_height ? std::max(h / guest_height, 0.1f) : 1.0f;
+    float scale = guest_height ? std::max(h / guest_height, 0.1f) : 1.0f;
+    return g_low_end ? std::min(scale, 2.0f) : scale;  // mechassault-recomp patch: integrated GPUs (SetLowEndGpu)
 }
 
 }  // namespace app

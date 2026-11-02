@@ -402,6 +402,12 @@ void Menu() {
                                        now_hz);
                 ImGui::PopTextWrapPos();
             }
+            // mechassault-recomp patch: brightness as a gamma curve on the finished picture
+            int bright = int(s.brightness);
+            if (ImGui::SliderInt("Brightness", &bright, 50, 200, "%d%%")) {
+                s.brightness = uint32_t(bright);
+                Changed();
+            }
             bool vsync = s.vsync;
             if (ImGui::Checkbox("V-Sync", &vsync)) {
                 s.vsync = vsync;
@@ -414,7 +420,8 @@ void Menu() {
             ImGui::TextDisabled("The game keeps its own speed at any frame rate; the limit only caps it. F2 shows the FPS counter.");
         }
         if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
-            std::vector<std::pair<std::string, uint32_t>> scales{{"Auto (output resolution)", 0}};
+            std::vector<std::pair<std::string, uint32_t>> scales{
+                {LowEndGpu() ? "Auto (output resolution, at most 2x)" : "Auto (output resolution)", 0}};
             for (uint32_t i = 1; i <= kMaxRenderScale; i++) {
                 char name[48];
                 std::snprintf(name, sizeof(name), "%ux (%ux%u)", i, 640 * i, 480 * i);
@@ -470,6 +477,7 @@ void Menu() {
             s.refresh_hz = d.refresh_hz;
             s.aspect_ratio = d.aspect_ratio;
             s.upscaler = d.upscaler;
+            s.brightness = d.brightness;
             s.fsr_sharpness = d.fsr_sharpness;
             Changed(true);
         }

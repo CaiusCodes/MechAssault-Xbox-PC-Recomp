@@ -64,7 +64,23 @@ Measured in Mission 1 (scripted walk, `scriptsench_scales.ps1`, 1280x960 window
 So on this PC the game is nowhere near GPU-bound: 4x costs about 0.1 ms a frame over 1x, FXAA at 4x about 0.05 ms,
 and the renderer's own CPU time stays 0.47-0.62 ms. Uncapped the game ran at 700-860 fps, which says the
 renderer/runtime overhead per frame is about 1.2 ms in total; the game was not checked for correctness at such
-rates (its clock allows them; the default cap is 60). Low-end GPUs were not available to test.
+rates (its clock allows them; the default cap is 60).
+
+Low end: the same PC's integrated **AMD Radeon Graphics** (Ryzen 7 7700X, 2 RDNA2 compute units, 485 MB dedicated),
+picked with `XBE_GPU=low`; it renders while the window is on the RTX's display, so every frame is also copied across
+adapters (the "present" 2.6-2.9 ms below), which a real iGPU-only PC would not pay:
+
+| Render scale | AA | 60 fps cap: avg / 1% low / worst | Uncapped |
+|---|---|---|---|
+| 1x | FXAA | 60.00 / 49.1 / 35.8 ms (one load hitch) | 245 fps (4.1 ms) |
+| 1x | off | | 255 fps (3.9 ms) |
+| 2x | FXAA | 60.00 / 57.2 / 18.2 ms | 246-248 fps (4.0 ms) |
+| 2x | off | 60.00 / 57.1 / 18.3 ms | |
+| 3x | FXAA | 60.00 / 57.4 / 18.3 ms, but 21 ms p99 and a 92 ms frame in the next window | 122-146 fps (6.9-8.2 ms), 54 stalls in one 10 s window |
+
+So even this very small iGPU holds 60 fps at 2x; 3x starts to stall. **Auto now stays at 2x or below on an
+integrated GPU** (under 1 GB of dedicated memory; logged as "integrated GPU ... render scale Auto at most 2x", and the
+menu says so), and FSR 1 upscales the rest of the way. A fixed 3x or 4x can still be chosen.
 
 ## Anti-aliasing
 
@@ -129,8 +145,9 @@ not looked at. Render scale Auto renders as many pixels as the picture is wide, 
 | Performance overlay, frame-timing log | immediately |
 | Mouse aim, sensitivity, invert, key bindings | immediately |
 
-Nothing needs a restart. Monitor selection is "the monitor the window is on". Brightness/gamma: no PC slider yet
-(the shared renderer supports a gamma ramp; MechAssault was not seen setting one). FOV: the widescreen hook is the only FOV change; a separate FOV slider would use
+Nothing needs a restart. Monitor selection is "the monitor the window is on". Brightness: F1 >
+Display > Brightness (50-200%), a gamma curve applied through the renderer's gamma ramp on the finished picture
+(the title's own ramp, when it sets one, is bent the same way); live. FOV: the widescreen hook is the only FOV change; a separate FOV slider would use
 the same hook but is not exposed.
 
 ## Performance diagnostics
@@ -142,7 +159,7 @@ The shader disk cache removes the first-use compile stalls on later runs.
 
 ## Low-end defaults
 
-Defaults: Auto render scale (output-sized), FXAA on, V-Sync on, 60 fps cap, anisotropic filtering as the game
-asks. The renderer costs under 1 ms of CPU per frame at 2x here; the GPU cost scales with render scale (table
-above). There is no GPU-tier detection yet: Auto is resolution-based, so a weak GPU on a 4K display would render at
-4K. Next: an "Auto" that caps the scale when the measured GPU frame time exceeds a budget.
+Defaults: Auto render scale (output-sized; at most 2x on an integrated GPU), FSR 1 when upscaling, FXAA on,
+V-Sync on, 60 fps cap, anisotropic filtering as the game asks. The renderer costs under 1 ms of CPU per frame at 2x here; the GPU cost scales with render scale (table
+above). GPU detection is by dedicated memory only (integrated or not); a weak discrete GPU on a 4K display would still
+render at 4K under Auto. Next: an Auto that lowers the scale when the measured GPU frame time exceeds a budget.
