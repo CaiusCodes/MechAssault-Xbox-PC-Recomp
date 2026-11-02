@@ -40,6 +40,8 @@ struct PixelKey {
 uint64_t Hash(const void* p, size_t n, uint64_t h = 1469598103934665603ull);
 
 PixelKey MakePixelKey(const State& s, const TexInfo tex[4]);
+// breakdown-recomp patch: stages whose texture the pixel shader can read, bit per stage
+uint32_t SampledStages(const PixelKey& k);
 
 // vertex program microcode to HLSL, regs is the bit mask of v registers the draw supplies
 // decode: VertexDecode per register, 4 bits each, for elements the input assembler hands over raw
@@ -105,6 +107,8 @@ struct DrawConstants {
     float lt[8][7][4];   // per light: diffuse, specular, ambient, position range, direction falloff, attenuation, cos theta/2 phi/2
     float rtshift[4];    // per kTexTarget stage: host pixels its reads move along x and y, negative up and left
     float zparams[4];    // ReversedDepthHlsl: a w buffer's scale (0 for a z buffer), its far w, the polygon offset
+    float wide[4];       // breakdown-recomp patch: x scales flat vertices toward the middle, y set: edges too
+                         // (gpu/widescreen.h); x 0 or 1 none
 };
 
 }  // namespace gpu

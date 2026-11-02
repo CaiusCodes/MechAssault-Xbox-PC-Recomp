@@ -49,5 +49,5 @@ for f in $SRC; do
     [ "$(jobs -r | wc -l)" -ge "$JOBS" ] && wait -n
 done
 wait
-$CXX -o "$OUT/$EXE" "${objs[@]}" "$GEN_OBJ"/*.o -lpthread
+$CXX -rdynamic -o "$OUT/$EXE" "${objs[@]}" "$GEN_OBJ"/*.o -lpthread  # breakdown-recomp patch: -rdynamic for crash backtraces
 echo "built $OUT/$EXE"

@@ -33,7 +33,7 @@ struct VOut {
     float4 tc3 : TEXCOORD3;
     float fogamt : TEXCOORD4;
 };
-cbuffer VC : register(b0) { float4 c[192]; };
+cbuffer VC : register(b0) { float4 c[208]; };  // breakdown-recomp patch: 192+ current attributes
 cbuffer DC : register(b1) {
     float4 surf;
     float4 fogp;
@@ -55,6 +55,7 @@ const char* kCommonTail = R"(    float4 spread[4];
     float4 lt[56];
     float4 rtshift;
     float4 zparams;
+    float4 wide;
 };
 )";
 
@@ -133,7 +134,8 @@ std::string Src(const Tok& k, int which, uint16_t regs) {
         base = reg == 12 ? "oPos" : F("R%u", reg);
     } else if (mux == 2) {
         uint32_t v = k.f(1, 9, 4);
-        base = (regs >> v) & 1 ? F("i.v%u", v) : (v == 3 ? "float4(1,1,1,1)" : "float4(0,0,0,1)");
+        // breakdown-recomp patch: an input the vertex format leaves out reads the attribute's current value
+        base = (regs >> v) & 1 ? F("i.v%u", v) : F("c[%u]", 192 + v);
     } else {
         uint32_t cr = k.f(1, 13, 8);
         base = k.f(3, 1, 1) ? F("c[clamp(a0 + %u, 0, 191)]", cr) : F("c[%u]", cr);
@@ -227,6 +229,9 @@ const char* kVsEpilogue = R"(
     // surf.w set: a point, which stays put since pulled out it would leave the target
     if (surf.w == 0 && abs(p.x - (surf.x - 0.5)) < 1e-3) p.x = surf.x;
     if (surf.w == 0 && abs(p.y - (surf.y - 0.5)) < 1e-3) p.y = surf.y;
+    // breakdown-recomp patch: true widescreen, flat vertices back to 4:3 in the middle (gpu/widescreen.h)
+    if (wide.x > 0 && wide.x != 1 && p.w == 1 && (wide.y != 0 || (p.x > 0.5 && p.x < surf.x - 0.5)))
+        p.x = surf.x * 0.5 + (p.x - surf.x * 0.5) * wide.x;
     q.x = p.x * 2 / surf.x - 1;
     q.y = 1 - p.y * 2 / surf.y;
     q.z = p.z * surf.z;
@@ -675,6 +680,46 @@ PixelKey MakePixelKey(const State& s, const TexInfo tex[4]) {
     return k;
 }
 
+// breakdown-recomp patch: stages whose texture the pixel shader can read, bit per stage. Generous: a register a
+// combiner writes before it reads still counts, as does every stage before a dependent read
+uint32_t SampledStages(const PixelKey& k) {
+    uint32_t mask = 0;
+    if (k.programmable) {
+        uint32_t regs = 0;  // combiner registers read, bit per register
+        auto add = [&](uint32_t inputs, int first) {
+            for (int b = first; b < 4; b++) regs |= 1u << ((inputs >> (b * 8)) & 0xF);
+        };
+        uint32_t n = std::min<uint32_t>(k.count & 0xFF, 8);
+        for (uint32_t st = 0; st < n; st++) {
+            add(k.rgb_in[st], 0);
+            add(k.a_in[st], 0);
+        }
+        // the final combiner's E F G sit above its flags byte
+        if (k.final_abcd || k.final_efg) {
+            add(k.final_abcd, 0);
+            add(k.final_efg, 1);
+        }
+        for (int i = 0; i < 4; i++) {
+            uint32_t m = (k.tex_modes >> (i * 5)) & 0x1F;
+            bool fetch = m && m != 4 && m != 5 && m != 0xA && m != 0x11;
+            // stage 0's alpha starts r0
+            if (fetch && (i == 0 || ((regs >> (8 + i)) & 1))) mask |= 1u << i;
+            // a dependent read: the stages before feed it
+            if (m >= 6 && m != 0x11) mask |= ((1u << i) - 1) | (fetch ? 1u << i : 0);
+        }
+        return mask;
+    }
+    for (int i = 0; i < 4; i++) {
+        const uint32_t* f = k.ff[i];
+        if (f[0] <= 1) break;
+        if (ReadsTexture(f[0], f + 1, false) || (f[4] > 1 && ReadsTexture(f[4], f + 5, true))) mask |= 1u << i;
+        // premodulate reads the next stage's texture, bump mapping its own
+        if (f[0] == 17 && i < 3) mask |= 2u << i;
+        if (f[0] >= 25) mask |= 1u << i;
+    }
+    return mask;
+}
+
 constexpr uint32_t kMuxConstant = 3;
 constexpr uint32_t kViewportOffsetConstant = 59;  // c-37: constants start at c-96
 
@@ -847,6 +892,8 @@ std::string FixedVertexHlsl(uint16_t regs, bool pretransformed, uint64_t decode,
     float2 sp = (float2(cp.x, -cp.y) / cp.w + 1) * 0.5 * surf.xy;
     if (surf.w == 0 && abs(sp.x - (surf.x - 0.5)) < 1e-3) cp.x = cp.w;
     if (surf.w == 0 && abs(sp.y - (surf.y - 0.5)) < 1e-3) cp.y = -cp.w;
+    // breakdown-recomp patch: true widescreen, flat vertices back to 4:3 in the middle (gpu/widescreen.h)
+    if (wide.x > 0 && wide.x != 1 && cp.w == 1 && (wide.y != 0 || (sp.x > 0.5 && sp.x < surf.x - 0.5))) cp.x *= wide.x;
     o.pos = cp;
     o.d0 = saturate(oD0);
     o.d1 = saturate(oD1);

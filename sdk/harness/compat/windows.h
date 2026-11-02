@@ -31,3 +31,9 @@ enum { VK_RETURN = 0x0D, VK_ESCAPE = 0x1B, VK_F3 = 0x72, VK_F10 = 0x79, VK_OEM_3
 inline HCURSOR LoadCursorW(void*, const wchar_t*) { return nullptr; }
 inline HCURSOR SetCursor(HCURSOR) { return nullptr; }
 inline short GetAsyncKeyState(int) { return 0; }
+// breakdown-recomp patch: d3d8.cpp reports a renderer init failure with a message box
+#ifndef MB_ICONERROR
+#define MB_ICONERROR 0x10
+#define MB_TOPMOST 0x40000
+inline int MessageBoxW(void*, const wchar_t*, const wchar_t*, unsigned) { return 0; }
+#endif

@@ -494,7 +494,7 @@ bool LatchSettings() {
     Latched now{s.custom_textures, s.dump_textures, s.texture_dump_format};
     if (now == g.set) return false;
     g.set = now;
-    fs::path root = app::ExeDir() / "textures";
+    fs::path root = app::Paths().textures;  // breakdown-recomp patch: Paths()
     g.pack_dir = root / "replacement";
     if (now.dumping) {
         g.dump_dir = root / "dumps";

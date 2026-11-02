@@ -95,10 +95,18 @@ inline uint32_t Call(X86Context& ctx, uint32_t fn, const Map& m, std::initialize
     static_assert(counted, "[abi] " text " does not have the argument count of the function"); \
     using A = std::conditional_t<S::map.mapped, ::hle::Args<S>, ::kernel::Args>;
 
+// breakdown-recomp patch: while a push buffer records (D3DDevice_BeginPushBuffer), D3D calls are captured instead of
+// run, so RunPushBuffer can replay them where the console's hardware would run the recorded commands.
+namespace hle {
+using Recorder = bool (*)(X86Context& ctx, uint8_t* base, const char* name, X86Func* self, int pops);
+inline Recorder g_recorder = nullptr;
+}  // namespace hle
+
 #define HLE_BODY_(fn, guest, A, pops)                    \
     static uint32_t fn(X86Context& ctx, const A& a);     \
     X86_FUNC(guest) {                                    \
         (void)base;                                      \
+        if (::hle::g_recorder && ::hle::g_recorder(ctx, base, #fn, &guest, (pops))) return; \
         A args{ctx};                                     \
         uint32_t r = fn(ctx, args);                      \
         ::kernel::Return(ctx, r, pops);                  \

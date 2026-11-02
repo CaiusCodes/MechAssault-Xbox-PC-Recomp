@@ -86,7 +86,7 @@ int64_t NowMs() {
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
-fs::path CompilerDir() { return ExeDir() / "compiler"; }
+fs::path CompilerDir() { return Paths().runtime / "compiler"; }  // breakdown-recomp patch: Paths()
 
 // the config in compiler\config whose [xbe] path is this xbe; an included one has no path
 fs::path ConfigFor(const std::string& xbe) {
@@ -111,10 +111,10 @@ std::vector<Image> Images() {
 }
 
 fs::path WorkDir(const Image& image) { return CompilerDir() / "work" / image.exe; }
-fs::path CodeDll(const Image& image) { return ExeDir() / (image.exe + L".dll"); }
+fs::path CodeDll(const Image& image) { return Paths().runtime / (image.exe + L".dll"); }
 fs::path StampFile(const Image& image) { return WorkDir(image) / "built.txt"; }
 std::wstring Quote(const fs::path& path) { return L"\"" + path.wstring() + L"\""; }
-fs::path CompileLog() { return ExeDir() / "logs" / "compile.log"; }
+fs::path CompileLog() { return Paths().logs / "compile.log"; }
 
 // keeps the failed step for the message the player sees; false, to return
 bool RecordFailure(const std::wstring& what) {
@@ -698,11 +698,23 @@ std::wstring CompileLogTail() {
     return text;
 }
 
-void ShowFailure() {
+// breakdown-recomp patch: true when the player asks to try again (files already compiled are kept)
+bool ShowFailure() {
     std::wstring text = L"Preparing the game failed. " + g_failure;
     if (std::wstring tail = CompileLogTail(); !tail.empty()) text += L"\n\nThe last lines of the log:\n\n" + tail;
     text += L"\n\nThe full details are in logs\\compile.log.";
-    MessageBoxW(nullptr, text.c_str(), kGame.title, MB_ICONERROR);
+    return MessageBoxW(nullptr, text.c_str(), kGame.title, MB_ICONERROR | MB_RETRYCANCEL) == IDRETRY;
+}
+
+void ResetProgress() {
+    g_progress.stage = Stage::Translating;
+    g_progress.bytes_done = g_progress.bytes_total = 0;
+    g_progress.files_done = g_progress.files_total = 0;
+    g_progress.first_wave = 1;
+    g_progress.compile_start = 0;
+    g_progress.cancel = false;
+    g_failure.clear();
+    g_start = false;
 }
 
 // the build on its own thread, the window on this one; false when it failed, the player stopped it, or chose Exit
@@ -727,11 +739,71 @@ bool BuildWithWindow(std::vector<Target>& targets) {
     }
     worker.join();
     SetThreadExecutionState(ES_CONTINUOUS);
-    if (!ok && !g_progress.cancel) ShowFailure();
+    if (!ok && !g_progress.cancel && ShowFailure()) {
+        ResetProgress();
+        return BuildWithWindow(targets);
+    }
     return ok && g_start;
 }
 
+// breakdown-recomp patch: the installer's build (setup.cpp), the same steps without this file's window
+std::vector<Image> g_installer_images;
+std::vector<Target> g_installer_targets;
+std::thread g_installer_worker;
+
 }  // namespace
+
+bool GameCodeStale(const GameFiles& game) {
+    std::vector<Image> images = Images();
+    return !StaleTargets(game, images).empty();
+}
+
+std::wstring StartGameCodeBuild(const GameFiles& game, void* hwnd, uint32_t msg) {
+    JoinGameCodeBuild();
+    ResetProgress();
+    g_installer_images = Images();
+    g_installer_targets = StaleTargets(game, g_installer_images);
+    if (g_installer_targets.empty()) {
+        g_progress.stage = Stage::Ready;
+        PostMessageW(HWND(hwnd), msg, 1, 0);
+        return {};
+    }
+    if (std::wstring blocker = Blocker(g_installer_targets); !blocker.empty()) return blocker;
+    for (const Target& target : g_installer_targets) LOGR("Game code: building %ls.dll", target.image->exe.c_str());
+    g_installer_worker = std::thread([hwnd, msg] {
+        SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED);  // no sleep while it works
+        bool ok = Build(g_installer_targets);
+        if (ok) g_progress.stage = Stage::Ready;
+        SetThreadExecutionState(ES_CONTINUOUS);
+        PostMessageW(HWND(hwnd), msg, ok, 0);
+    });
+    return {};
+}
+
+void CancelGameCodeBuild() { g_progress.cancel = true; }
+bool GameCodeBuildCancelled() { return g_progress.cancel; }
+
+void JoinGameCodeBuild() {
+    if (g_installer_worker.joinable()) g_installer_worker.join();
+}
+
+GameCodeStatus GameCodeProgress() {
+    GameCodeStatus s;
+    s.ready = g_progress.stage == Stage::Ready;
+    s.stage = s.ready ? std::wstring(L"Built for this PC") : StageText();
+    s.time_left = TimeLeftText();
+    s.fraction = Fraction();
+    return s;
+}
+
+std::wstring GameCodeFailure() {
+    std::wstring text = L"Preparing the game failed. " + g_failure;
+    if (std::wstring tail = CompileLogTail(); !tail.empty()) text += L"\n\nThe last lines of the log:\n\n" + tail;
+    return text + L"\n\nThe full details are in logs\\compile.log.";
+}
+
+uint64_t CompilerFolderBytes() { return CompilerBytes(); }
+void DeleteCompilerFolder() { DeleteCompiler(); }
 
 bool PrepareGameCode(const GameFiles& game) {
     // one build at a time: a second copy of the game started meanwhile waits for it, then finds the DLL current

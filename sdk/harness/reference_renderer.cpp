@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <set>
+#include <string>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -18,6 +20,8 @@
 #include "gpu/shaders.h"
 #include "gpu/texture.h"
 #include "gpu/vertex.h"
+#include "gpu/widescreen.h"  // breakdown-recomp patch
+#include "app/app.h"         // breakdown-recomp patch
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 
@@ -198,10 +202,22 @@ void DecodeBlocks(const TextureDesc& d, Host host, const std::vector<uint8_t>& i
         }
 }
 
-std::shared_ptr<Image> FindImage(uint32_t header) {
+// breakdown-recomp patch: a P8 texture is decoded with its stage's palette (D3DPalette: Common's top two bits the
+// size code, Data the colours' physical address), as the D3D12 backend does; it was decoded as grey indices
+std::shared_ptr<Image> FindImage(uint32_t header, uint32_t palette_header = 0) {
     TextureDesc d;
     if (!header || !Describe(header, d)) return nullptr;
     uint64_t key = uint64_t(d.data) << 32 ^ uint64_t(d.format) << 24 ^ uint64_t(d.width) << 12 ^ d.height ^ (d.cube ? 1ull << 63 : 0);
+    std::array<uint32_t, 256> palette{};
+    bool paletted = d.format == 0x0B && palette_header;
+    if (paletted) {
+        uint32_t va = mem::VirtualFromPhysical(kernel::R32(palette_header + 4));
+        size_t count = palette.size() >> (kernel::R32(palette_header) >> 30);
+        std::memcpy(palette.data(), kernel::HostPtr(va), count * 4);
+        uint64_t h = 1469598103934665603ull;
+        for (uint32_t c : palette) h = (h ^ c) * 1099511628211ull;
+        key ^= h * 31;
+    }
     if (auto it = g_images.find(key); it != g_images.end()) return it->second;
     auto img = std::make_shared<Image>();
     const FormatInfo& fi = Format(d.format);
@@ -215,7 +231,7 @@ std::shared_ptr<Image> FindImage(uint32_t header) {
     for (uint32_t f = 0; f < img->faces; f++) {
         std::vector<uint8_t> raw;
         uint32_t pitch;
-        DecodeLevel(d, 0, f, guest, nullptr, raw, pitch);
+        DecodeLevel(d, 0, f, guest, paletted ? palette.data() : nullptr, raw, pitch);
         std::vector<Vec>& out = img->texels[f];
         if (fi.compressed) {
             DecodeBlocks(d, fi.host, raw, out);
@@ -759,6 +775,8 @@ struct Combiners {
                 LOGI("  dbg st%u r0 %.3f %.3f %.3f %.3f r1 %.3f %.3f %.3f %.3f", st, r0[0], r0[1], r0[2], r0[3], r1[0], r1[1], r1[2], r1[3]);
         }
         if (g_trace.on) {
+            LOGI("  dbg key count %08X modes %08X rgb_in0 %08X a_in0 %08X rgb_out0 %08X a_out0 %08X final %08X %08X", k.count, k.tex_modes,
+                 k.rgb_in[0], k.a_in[0], k.rgb_out[0], k.a_out[0], k.final_abcd, k.final_efg);
             LOGI("  dbg T0 %.3f %.3f %.3f %.3f T1 %.3f %.3f %.3f %.3f T2 %.3f %.3f %.3f %.3f T3 %.3f %.3f %.3f %.3f", t[0][0], t[0][1], t[0][2],
                  t[0][3], t[1][0], t[1][1], t[1][2], t[1][3], t[2][0], t[2][1], t[2][2], t[2][3], t[3][0], t[3][1], t[3][2], t[3][3]);
             LOGI("  dbg v0 %.3f %.3f %.3f %.3f v1 %.3f %.3f %.3f %.3f r0 %.3f %.3f %.3f %.3f r1 %.3f %.3f %.3f %.3f", v0[0], v0[1], v0[2],
@@ -965,6 +983,7 @@ const Probes& Watch() {
 }
 
 uint32_t g_draws = 0;  // this frame's
+uint32_t g_dbg_frags = 0;
 
 // triangles
 
@@ -987,9 +1006,14 @@ struct Screen {
 
 }  // namespace
 
+uint64_t g_frame = 0;               // breakdown-recomp patch: frames begun
+std::vector<uint32_t> g_rt_data;    // breakdown-recomp patch: colour targets drawn to, newest last
+
 void BeginFrame() {
     g_images.clear();
     g_draws = 0;
+    g_frame++;
+    gpu::wide::SetView(app::WideView());
 }
 
 void Clear(const State& s, uint32_t count, const uint8_t* rects, uint32_t flags, uint32_t color, float z, uint32_t stencil) {
@@ -1062,6 +1086,7 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
     uint32_t draw = g_draws++;
     Assembled as;
     if (!Assemble(s, prim, start, count, indices, as) || as.topology != Topology::Triangles) return;
+    if (static const bool dbg_prim = std::getenv("DRAWDBG") != nullptr; dbg_prim) { std::string ix; for (size_t i = 0; i < as.indices.size() && i < 12; i++) ix += std::to_string(as.indices[i]) + " "; LOGI("drawdbg %u prim %u count %u indices %s", draw, prim, count, ix.c_str()); }
     Plane rt = OpenPlane(s.rt);
     Plane zs = s.rs[kRsZEnable] || s.rs[kRsStencilEnable] ? OpenPlane(s.zs) : Plane{};
     if (!rt.ok && !zs.ok) return;
@@ -1079,7 +1104,7 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
         if (Format(d.format).depth) ti.shadow = d.format == 0x2C || d.format == 0x30 ? 2 : 1;
         Unit& u = mat.unit[i];
         const auto& ts = s.tss[size_t(i)];
-        u.img = FindImage(s.textures[size_t(i)]);
+        u.img = FindImage(s.textures[size_t(i)], s.palettes[size_t(i)]);
         u.address_u = ts[kTssAddressU];
         u.address_v = ts[kTssAddressV];
         u.mag = ti.shadow ? 1 : ts[kTssMagFilter];
@@ -1109,7 +1134,9 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
                 const float* p = input(vi, r);
                 vp.in[r] = V(p[0], p[1], p[2], p[3]);
             } else {
-                vp.in[r] = r == 3 ? V(1, 1, 1, 1) : V(0, 0, 0, 1);
+                // breakdown-recomp patch: the attribute's current value (fixed function keeps the old defaults)
+                const auto& c = s.vsc[size_t(192 + r)];
+                vp.in[r] = program ? V(c[0], c[1], c[2], c[3]) : r == 3 ? V(1, 1, 1, 1) : V(0, 0, 0, 1);
             }
         }
         Shaded& o = verts[vi];
@@ -1155,6 +1182,54 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
         if (!s.rs[kRsSpecularEnable]) o.attr[kD1] = o.attr[kB1] = V(0, 0, 0, 1);
     }
 
+    // breakdown-recomp patch: true widescreen, flat vertices squeezed back to 4:3 (gpu/widescreen.h)
+    {
+        // as Describe gives a texture's data, the way the D3D12 renderer matches targets
+        uint32_t rt_data = mem::VirtualFromPhysical(s.rt.data);
+        if (rt.ok && (g_rt_data.empty() || g_rt_data.back() != rt_data)) {
+            std::erase(g_rt_data, rt_data);
+            g_rt_data.push_back(rt_data);
+            if (g_rt_data.size() > 64) g_rt_data.erase(g_rt_data.begin());
+        }
+        bool reads_target = false;
+        // WIDE_ALLSTAGES=1: every bound stage counts, as the D3D12 renderer did before SampledStages
+        static const bool wide_all = std::getenv("WIDE_ALLSTAGES") != nullptr;
+        uint32_t sampled = wide_all ? 0xF : gpu::SampledStages(mat.key);
+        for (int i = 0; i < 4; i++) {
+            TextureDesc d;
+            if (((sampled >> i) & 1) && s.textures[size_t(i)] && Describe(s.textures[size_t(i)], d) &&
+                std::find(g_rt_data.begin(), g_rt_data.end(), d.data) != g_rt_data.end())
+                reads_target = true;
+        }
+        float k = gpu::wide::Factor(gw, gh, reads_target);
+        static const bool dbg_wide = std::getenv("WIDEDBG") != nullptr;  // every draw of the drawn frames
+        if (dbg_wide) {
+            float x0 = 1e30f, x1 = -1e30f, w0 = 1e30f, w1 = -1e30f;
+            for (const Shaded& o : verts) {
+                x0 = std::min(x0, o.pos[0]);
+                x1 = std::max(x1, o.pos[0]);
+                w0 = std::min(w0, o.pos[3]);
+                w1 = std::max(w1, o.pos[3]);
+            }
+            TextureDesc t0;
+            if (!s.textures[0] || !Describe(s.textures[0], t0)) t0 = {};
+            for (int i = 1; i < 4; i++) {
+                TextureDesc ti;
+                if (s.textures[size_t(i)] && Describe(s.textures[size_t(i)], ti))
+                    LOGI("widedbg   stage %d tex %08X data %08X %ux%u fmt %X", i, s.textures[size_t(i)], ti.data, ti.width, ti.height, ti.format);
+            }
+            LOGI("widedbg %llu draw %u rt %08X %ux%u %s%s%s verts %u x %.1f..%.1f w %.4f..%.4f tex %08X %ux%u fmt %X %08X k %.3f",
+                 (unsigned long long)g_frame, g_draws, s.rt.data, gw, gh,
+                 program ? "program" : as.pretransformed ? "screen" : "fixed", reads_target ? " reads-target" : "",
+                 simple(kMBlendEnable) ? " blend" : "", as.vertex_count, x0, x1, w0, w1, s.textures[0], t0.width,
+                 t0.height, t0.format, s.textures[1], k);
+        }
+        TextureDesc movie;
+        bool edges = s.textures[0] && Describe(s.textures[0], movie) && gpu::wide::MovieFormat(movie.format);
+        if (k != 1.0f)
+            for (Shaded& o : verts) o.pos[0] = gpu::wide::SqueezeX(o.pos[0], o.pos[3], float(gw), k, edges);
+    }
+
     // raster and output state
     bool blend = simple(kMBlendEnable) != 0;
     uint32_t src_factor = simple(kMSrcBlend), dst_factor = simple(kMDestBlend), blend_op = simple(kMBlendOp);
@@ -1186,6 +1261,57 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
     bool watched = probes.Watched(rt);
 
     const float near_w = 1e-6f;
+    // breakdown-recomp patch: DRAWDBG=1 logs each draw's screen-space corners and fragments (debug only)
+    static const bool dbg = std::getenv("DRAWDBG") != nullptr;
+    g_dbg_frags = 0;
+    struct DbgLog {
+        bool on; uint32_t draw; const std::vector<Shaded>& v; const Plane& rt; const State& s; bool program;
+        int l, t, r, b;
+        ~DbgLog() {
+            if (!on) return;
+            static std::set<const void*> shown;
+            if (s.vs && !s.vs->program.empty() && shown.insert(s.vs.get()).second) {
+                std::string hex;
+                char b[12];
+                for (uint32_t w : s.vs->program) { std::snprintf(b, sizeof b, "%08X ", w); hex += b; }
+                LOGI("drawdbg program %08X: %s", s.vs_handle, hex.c_str());
+                std::string c;
+                for (int i = 0; i < 192; i++) {
+                    const auto& v = s.vsc[size_t(i)];
+                    if (v[0] || v[1] || v[2] || v[3]) { char t[96]; std::snprintf(t, sizeof t, "c%d=(%g %g %g %g) ", i, v[0], v[1], v[2], v[3]); c += t; }
+                }
+                LOGI("drawdbg constants: %s", c.c_str());
+            }
+            auto p = [&](size_t i) { return i < v.size() ? v[i].pos : Vec{}; };
+            LOGI("drawdbg %u rt %ux%u f%X ok%d vp %u,%u %ux%u clip %d,%d-%d,%d prog%d n%zu p0 %.1f %.1f %.3f %.3f p1 %.1f %.1f p2 %.1f %.1f frags %u vs %08X obj%d prog %zu rtdata %08X tex0data %08X px %08X",
+                 draw, rt.w, rt.h, rt.format, rt.ok, s.viewport.x, s.viewport.y, s.viewport.w, s.viewport.h, l, t, r, b, program, v.size(),
+                 p(0)[0], p(0)[1], p(0)[2], p(0)[3], p(1)[0], p(1)[1], p(2)[0], p(2)[1], g_dbg_frags, s.vs_handle, s.vs != nullptr, s.vs ? s.vs->program.size() : 0, rt.data, [&] { TextureDesc d; return s.textures[0] && Describe(s.textures[0], d) ? d.data : 0u; }(),
+                 [&] { const Pixel& t = Watch().trace; uint32_t v = 0; if (rt.ok && t.x >= 0 && uint32_t(t.x) < rt.w && uint32_t(t.y) < rt.h) std::memcpy(&v, rt.At(uint32_t(t.x), uint32_t(t.y)), 4); return v; }());
+            LOGI("drawdbg %u cull rs %X front %X raw enable %X face %X front %X", draw, s.rs[kRsCullMode], s.rs[kRsFrontFace], s.simple[0x308 >> 2], s.simple[0x39C >> 2], s.simple[0x3A0 >> 2]);
+            LOGI("drawdbg %u combiners %08X ain %08X %08X aout %08X %08X cin %08X cout %08X final %08X %08X tss0 colorop %u args %X %X alphaop %u args %X %X; atest %u func %X ref %X",
+                 draw, s.simple[kMPsCombinerCount >> 2], s.simple[kMPsAlphaInputs >> 2], s.simple[(kMPsAlphaInputs + 4) >> 2],
+                 s.simple[kMPsAlphaOutputs >> 2], s.simple[(kMPsAlphaOutputs + 4) >> 2], s.simple[kMPsRgbInputs >> 2],
+                 s.simple[kMPsRgbOutputs >> 2], s.simple[kMPsFinalAbcd >> 2], s.simple[kMPsFinalEfgh >> 2],
+                 s.tss[0][kTssColorOp], s.tss[0][kTssColorArg1], s.tss[0][kTssColorArg2], s.tss[0][kTssAlphaOp],
+                 s.tss[0][kTssAlphaArg1], s.tss[0][kTssAlphaArg2], s.simple[kMAlphaTestEnable >> 2], s.simple[kMAlphaFunc >> 2], s.simple[kMAlphaRef >> 2]);
+            for (uint32_t st = 0; st < (s.simple[kMPsCombinerCount >> 2] & 0xFF) && st < 8; st++)
+                LOGI("drawdbg %u stage %u ain %08X aout %08X cin %08X cout %08X c0 %08X c1 %08X", draw, st, s.simple[(kMPsAlphaInputs >> 2) + st],
+                     s.simple[(kMPsAlphaOutputs >> 2) + st], s.simple[(kMPsRgbInputs >> 2) + st], s.simple[(kMPsRgbOutputs >> 2) + st],
+                     s.simple[(kMPsConstant0 >> 2) + st], s.simple[(kMPsConstant1 >> 2) + st]);
+            LOGI("drawdbg %u fc0 %08X fc1 %08X inputtex %08X dotmap %08X compare %08X texmodes %08X", draw, s.simple[kMPsFinalConstant0 >> 2],
+                 s.simple[kMPsFinalConstant1 >> 2], s.simple[kMPsInputTexture >> 2], s.simple[kMPsDotMapping >> 2], s.simple[kMPsCompareMode >> 2],
+                 s.simple[0x1E70 >> 2]);
+            LOGI("drawdbg %u depth zenable %u zfunc %X zwrite %u stencil %u zs %08X blend %u src %X dst %X op %X colormask %X offset %u slope %08X units %08X", draw, s.rs[kRsZEnable],
+                 s.simple[kMZFunc >> 2], s.simple[kMZWriteEnable >> 2], s.rs[kRsStencilEnable], s.zs.header, s.simple[kMBlendEnable >> 2],
+                 s.simple[kMSrcBlend >> 2], s.simple[kMDestBlend >> 2], s.simple[kMBlendOp >> 2], s.simple[kMColorWriteEnable >> 2], s.simple[kMSolidOffsetEnable >> 2], s.simple[kMSlopeScale >> 2], s.simple[kMDepthOffset >> 2]);
+            for (int i = 0; i < 4; i++) {
+                TextureDesc d;
+                if (s.textures[size_t(i)] && Describe(s.textures[size_t(i)], d))
+                    LOGI("drawdbg %u tex%d %08X format %X %ux%u levels %u linear %d alphakill tss %u raw control0 %08X colorkeyop %u", draw, i, d.data, d.format, d.width, d.height, d.levels, d.linear, s.tss[size_t(i)][kTssAlphaKill], s.simple[(0x1B0C + 0x40 * i) >> 2], s.tss[size_t(i)][kTssColorKeyOp]);
+            }
+            { std::string ps; char b[48]; for (size_t i = 0; i < v.size() && i < 8; i++) { std::snprintf(b, sizeof b, "(%.1f %.1f) ", v[i].pos[0], v[i].pos[1]); ps += b; } LOGI("drawdbg %u verts %s", draw, ps.c_str()); }
+        }
+    } dbglog{dbg, draw, verts, rt, s, program, left, top, right, bottom};
     for (size_t ti = 0; ti + 2 < as.indices.size(); ti += 3) {
         Clip tri[3];
         for (int i = 0; i < 3; i++) {
@@ -1259,8 +1385,16 @@ void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const u
                     g_trace.on = watched && x == probes.trace.x && y == probes.trace.y;
                     Vec col;
                     bool keep = mat.key.programmable ? Combiners{mat, frag}.Shade(col) : ShadeStages(mat, frag, col);
+                    if (g_trace.on && dbg) {
+                        const auto& ts = s.tss[0];
+                        LOGI("  dbg col %.3f %.3f %.3f %.3f keep%d prog%d diffuse %.3f %.3f %.3f %.3f tc0 %.2f %.2f cop %u %u %u aop %u %u %u blend %u %u %u",
+                             col[0], col[1], col[2], col[3], keep, mat.key.programmable ? 1 : 0, frag.v0[0], frag.v0[1], frag.v0[2], frag.v0[3],
+                             frag.tc[0][0], frag.tc[0][1], ts[kTssColorOp], ts[kTssColorArg1], ts[kTssColorArg2], ts[kTssAlphaOp],
+                             ts[kTssAlphaArg1], ts[kTssAlphaArg2], unsigned(blend), src_factor, dst_factor);
+                    }
                     if (!keep) continue;
                     if (atest && !Passes(afunc, uint32_t(int(std::lround(Sat(col[3]) * 255))), aref)) continue;
+                    g_dbg_frags++;
                     uint32_t oz = 0, os = 0, zi = uint32_t(std::floor(z));
                     if (zs.ok) zs.LoadDepth(uint32_t(x), uint32_t(y), oz, os);
                     auto stencil_op = [&](uint32_t op) { return (os & ~swmask) | (StencilResult(op, os, sref) & swmask); };

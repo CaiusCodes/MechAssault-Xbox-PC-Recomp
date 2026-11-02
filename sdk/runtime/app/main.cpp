@@ -19,6 +19,8 @@
 #include <backends/imgui_impl_win32.h>
 
 #include "app/app.h"
+#include "app/overlay.h"  // breakdown-recomp patch
+#include "core/game_import.h"  // breakdown-recomp patch
 #include "core/input.h"
 #include "core/log.h"
 #include "gpu/backend.h"
@@ -49,7 +51,7 @@ LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
         }
         kernel::LogGuestStack(*t->ctx, 256);
     }
-    auto dir = ExeDir() / "CrashDumps";
+    auto dir = Paths().logs / "CrashDumps";  // breakdown-recomp patch: Paths()
     CreateDirectoryW(dir.c_str(), nullptr);
     SYSTEMTIME t;
     GetLocalTime(&t);
@@ -94,14 +96,30 @@ void ApplyNow() {
     desktop.dmSize = sizeof(desktop);
     EnumDisplaySettingsW(mi.szDevice, ENUM_REGISTRY_SETTINGS, &desktop);
     // the desktop's own size is no mode change: switching to it anyway blanks the screen for nothing
-    if (s.display_mode == DisplayMode::Fullscreen && s.width && s.height &&
-        (s.width != desktop.dmPelsWidth || s.height != desktop.dmPelsHeight)) {
+    // breakdown-recomp patch: nor its own refresh rate; another (refresh_hz) is a mode change at any size
+    uint32_t want_w = s.width && s.height ? s.width : desktop.dmPelsWidth;
+    uint32_t want_h = s.width && s.height ? s.height : desktop.dmPelsHeight;
+    bool other_hz = s.refresh_hz && s.refresh_hz != desktop.dmDisplayFrequency;
+    if (s.display_mode == DisplayMode::Fullscreen &&
+        (want_w != desktop.dmPelsWidth || want_h != desktop.dmPelsHeight || other_hz)) {
         DEVMODEW dm{};
         dm.dmSize = sizeof(dm);
-        dm.dmPelsWidth = s.width;
-        dm.dmPelsHeight = s.height;
+        dm.dmPelsWidth = want_w;
+        dm.dmPelsHeight = want_h;
         dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;
+        if (other_hz) {
+            dm.dmDisplayFrequency = s.refresh_hz;
+            dm.dmFields |= DM_DISPLAYFREQUENCY;
+        }
         g_mode_changed = ChangeDisplaySettingsExW(mi.szDevice, &dm, nullptr, CDS_FULLSCREEN, nullptr) == DISP_CHANGE_SUCCESSFUL;
+        if (!g_mode_changed && other_hz) {
+            // breakdown-recomp patch: a rate this size doesn't have: the size alone, at the display's choice of rate
+            LOGR("display: no %u Hz at %ux%u, keeping the display's rate", s.refresh_hz, want_w, want_h);
+            dm.dmFields &= ~DWORD(DM_DISPLAYFREQUENCY);
+            if (want_w != desktop.dmPelsWidth || want_h != desktop.dmPelsHeight)
+                g_mode_changed =
+                    ChangeDisplaySettingsExW(mi.szDevice, &dm, nullptr, CDS_FULLSCREEN, nullptr) == DISP_CHANGE_SUCCESSFUL;
+        }
         GetMonitorInfoW(mon, &mi);
     }
     if (s.display_mode == DisplayMode::Windowed) {
@@ -128,6 +146,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_KEYDOWN:
             if (wp == VK_F3) DumpThreads();
+            if (wp == VK_F1 && !(lp & 0x40000000)) ToggleMenu();  // breakdown-recomp patch: settings menu, not on repeats
+            // breakdown-recomp patch: F2 steps the performance overlay: off, FPS counter, counter and diagnostics
+            if (wp == VK_F2 && !(lp & 0x40000000)) {
+                Get().perf_overlay = (Get().perf_overlay + 1) % 3;
+                Save();
+            }
             return 0;
         case WM_ACTIVATE:
             if (LOWORD(wp) == WA_INACTIVE) {
@@ -141,7 +165,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     g_mode_changed = false;
                     ShowWindow(hwnd, SW_MINIMIZE);
                 }
-            } else if (Get().display_mode == DisplayMode::Fullscreen && Get().width && Get().height && !g_mode_changed &&
+            } else if (Get().display_mode == DisplayMode::Fullscreen &&
+                       ((Get().width && Get().height) || Get().refresh_hz) && !g_mode_changed &&
                        IsWindowVisible(hwnd) && !g_apply_posted) {
                 // once: restoring the window activates it again from inside the apply, and a second apply switched
                 // the mode back and forth, after which presents were not taken for a while (the game stood still
@@ -248,14 +273,28 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     bool relaunched = std::wcsstr(GetCommandLineW(), L"--relaunched") != nullptr;
     std::string log = app::kGame.log;
     if (app::Instance() > 1) log += "-" + std::to_string(app::Instance());
-    logx::Init((app::ExeDir() / "logs").string(), log, relaunched);
+    logx::Init(app::Paths().logs.string(), log, relaunched);  // breakdown-recomp patch: Paths()
     app::Load();
     if (app::kGame.init) app::kGame.init();
     if (relaunched && !logx::kVerbose) LOGR("Relaunched: %s", IMAGE_XBE);
     else app::LogSystem();
 
+    // breakdown-recomp patch: a portable release opens its installer while the game is not imported or its code not
+    // built for this exe (the first start, an update)
     app::GameFiles game;
-    if (!app::FindGame(game)) return 1;
+    bool have_game = false;
+    if (const gameimport::Profile* profile = app::kGame.profile; profile && app::Paths().portable) {
+        bool imported = gameimport::Imported(app::Paths().game, *profile);
+        if (imported) {
+            if (!app::FindGame(game)) return 1;
+            have_game = true;
+        }
+        if (!imported || app::GameCodeStale(game)) {
+            if (!app::RunSetup(*profile, game, have_game)) return 0;
+            have_game = true;
+        }
+    }
+    if (!have_game && !app::FindGame(game)) return 1;
     if (!app::PrepareGameCode(game)) return 1;
 
     bool splash = app::OpenSplash(), handover = app::StartHandover();
@@ -287,10 +326,12 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
 
     input::Init();
     if (app::kGame.window) app::kGame.window(app::g_hwnd);
-    std::wstring hdd = app::Instance() > 1 ? L"hdd" + std::to_wstring(app::Instance()) : L"hdd";
+    // breakdown-recomp patch: the hard disk in Paths().saves; a second instance's beside it with its number
+    std::filesystem::path hdd = app::Paths().saves;
+    if (app::Instance() > 1) hdd += std::to_wstring(app::Instance());
     if (app::Instance())
         SetWindowTextW(app::g_hwnd, (std::wstring(app::kGame.title) + L" [" + std::to_wstring(app::Instance()) + L"]").c_str());
-    if (!kernel::Boot(std::move(game.xbe), IMAGE_XBE, game.dir.string(), (app::ExeDir() / hdd).string())) {
+    if (!kernel::Boot(std::move(game.xbe), IMAGE_XBE, game.dir.string(), hdd.string())) {
         MessageBoxW(app::g_hwnd, L"The game failed to start, see the log in the logs folder.", app::kGame.short_title,
                     MB_ICONERROR);
         return 1;

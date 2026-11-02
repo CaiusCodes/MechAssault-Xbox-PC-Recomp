@@ -2,6 +2,7 @@
 #include "core/input.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <mutex>
 #include <utility>
@@ -53,6 +54,30 @@ void UpdatePads() {
     }
 }
 
+// breakdown-recomp patch: Back and Start together open the PC menu. Read under g_lock by the game's polls and the
+// menu's, whichever comes first, so the game never sees that Start.
+bool g_combo_down = false;     // Back and Start both held on some controller
+bool g_combo_pending = false;  // pressed, not yet read by the menu
+bool g_combo_latch = false;    // kept from the game until Back and Start are both let go
+bool g_menu_was_open = false;  // the menu closed: buttons kept from the game until all are let go
+
+void UpdateCombo() {
+    bool both = false, either = false;
+    for (SDL_Gamepad* pad : g_pads) {
+        if (!pad) continue;
+        bool start = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_START);
+        bool back = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_BACK);
+        both |= start && back;
+        either |= start || back;
+    }
+    if (both && !g_combo_down) {
+        g_combo_pending = true;
+        g_combo_latch = true;
+    }
+    g_combo_down = both;
+    if (!either) g_combo_latch = false;
+}
+
 }  // namespace
 
 void Init() {
@@ -85,6 +110,7 @@ Pad Poll(int port) {
     {
         std::lock_guard lock(g_lock);
         UpdatePads();
+        UpdateCombo();
         if (SDL_Gamepad* pad = port >= 0 && port < 4 ? g_pads[port] : nullptr) {
             p.connected = true;
             constexpr SDL_GamepadButton kButtons[] = {
@@ -107,10 +133,56 @@ Pad Poll(int port) {
             p.ly = int16_t(-1 - axis(SDL_GAMEPAD_AXIS_LEFTY));
             p.rx = int16_t(axis(SDL_GAMEPAD_AXIS_RIGHTX));
             p.ry = int16_t(-1 - axis(SDL_GAMEPAD_AXIS_RIGHTY));
+            if (g_combo_latch) p.buttons &= uint16_t(~0x30);  // Start and Back
         }
     }
     if (app::kGame.pad) app::kGame.pad(port, p);
+    // breakdown-recomp patch: the PC settings menu has the controls; the pad stays connected, idle. Once it closes,
+    // the buttons that were held for it (B, Start, Enter) stay away from the game until they are let go.
+    bool open = app::MenuOpen();
+    bool held = (p.buttons & 0xF0) ||  // Start, Back, the stick clicks; A B X Y black white
+                std::any_of(std::begin(p.analog), std::begin(p.analog) + 6, [](uint8_t a) { return a > 0x20; });
+    {
+        std::lock_guard lock(g_lock);
+        if (open) g_menu_was_open = true;
+        else if (g_menu_was_open && !held) g_menu_was_open = false;
+        open = open || g_menu_was_open;
+    }
+    if (open) {
+        Pad idle;
+        idle.connected = p.connected;
+        if (!app::MenuOpen()) {  // just closed: the sticks and d-pad go through, the buttons wait
+            idle.lx = p.lx, idle.ly = p.ly, idle.rx = p.rx, idle.ry = p.ry;
+            idle.buttons = p.buttons & 0x0F;
+        }
+        p = idle;
+    }
     return p;
+}
+
+MenuPad ReadMenuPad() {
+    MenuPad m;
+    std::lock_guard lock(g_lock);
+    UpdatePads();
+    UpdateCombo();
+    m.toggle = g_combo_pending;
+    g_combo_pending = false;
+    constexpr std::pair<SDL_GamepadButton, uint32_t> kButtons[] = {
+        {SDL_GAMEPAD_BUTTON_SOUTH, kMenuA},         {SDL_GAMEPAD_BUTTON_EAST, kMenuB},
+        {SDL_GAMEPAD_BUTTON_WEST, kMenuX},          {SDL_GAMEPAD_BUTTON_NORTH, kMenuY},
+        {SDL_GAMEPAD_BUTTON_DPAD_UP, kMenuUp},      {SDL_GAMEPAD_BUTTON_DPAD_DOWN, kMenuDown},
+        {SDL_GAMEPAD_BUTTON_DPAD_LEFT, kMenuLeft},  {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, kMenuRight},
+        {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, kMenuLB}, {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, kMenuRB}};
+    for (SDL_Gamepad* pad : g_pads) {
+        if (!pad) continue;
+        for (auto [button, bit] : kButtons)
+            if (SDL_GetGamepadButton(pad, button)) m.buttons |= bit;
+        float lx = float(SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX)) / 32767.0f;
+        float ly = -float(SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY)) / 32767.0f;
+        if (std::fabs(lx) > std::fabs(m.lx)) m.lx = std::clamp(lx, -1.0f, 1.0f);
+        if (std::fabs(ly) > std::fabs(m.ly)) m.ly = std::clamp(ly, -1.0f, 1.0f);
+    }
+    return m;
 }
 
 uint16_t HeldOnAnyController() {

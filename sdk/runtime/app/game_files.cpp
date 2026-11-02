@@ -28,6 +28,7 @@ namespace fs = std::filesystem;
 
 // assets beside the exe or in any folder above it (the build output)
 fs::path FindAssets() {
+    if (Paths().portable) return Paths().game;  // breakdown-recomp patch: the imported game
     auto dir = ExeDir();
     std::error_code ec;
     for (int i = 0; i < 6; i++) {

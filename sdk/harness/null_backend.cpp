@@ -2,7 +2,10 @@
 // REF=N: every Nth frame drawn on the CPU into guest memory and saved as cap/ref_<frame>.tga
 // CAP=N: every Nth frame's draws listed in cap/draws_<frame>.txt
 // snap in the run folder: the next two frames drawn and saved as snap_1.tga and snap_2.tga, then snap is removed
+#include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <vector>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -19,6 +22,46 @@
 namespace gpu {
 
 namespace {
+
+// breakdown-recomp patch: MEMDUMP=f1,f2,... writes the guest's committed memory at those frames to cap/mem_<f>.bin
+// as records of (u32 guest address, u32 size, bytes), for finding game variables by comparing runs
+void DumpMemory(uint64_t frame) {
+    static const std::vector<uint64_t> at = [] {
+        std::vector<uint64_t> v;
+        if (const char* e = std::getenv("MEMDUMP"))
+            for (const char* p = e; *p;) {
+                v.push_back(std::strtoull(p, const_cast<char**>(&p), 10));
+                if (*p == ',') p++;
+                else break;
+            }
+        return v;
+    }();
+    if (std::find(at.begin(), at.end(), frame) == at.end()) return;
+    uint64_t base = uint64_t(reinterpret_cast<uintptr_t>(mem::Base())), top = base + (1ull << 32);
+    std::FILE* maps = std::fopen("/proc/self/maps", "r");
+    std::FILE* out = std::fopen((app::ExeDir() / ("cap/mem_" + std::to_string(frame) + ".bin")).string().c_str(), "wb");
+    if (!maps || !out) return;
+    char line[512];
+    uint64_t total = 0;
+    while (std::fgets(line, sizeof line, maps)) {
+        unsigned long long lo, hi;
+        char perms[8];
+        if (std::sscanf(line, "%llx-%llx %7s", &lo, &hi, perms) != 3 || perms[0] != 'r') continue;
+        if (hi <= base || lo >= top) continue;
+        lo = std::max<unsigned long long>(lo, base);
+        hi = std::min<unsigned long long>(hi, top);
+        uint32_t va = uint32_t(lo - base), size = uint32_t(hi - lo);
+        if (va >= 0xF0000000u) continue;  // the write combined view repeats physical memory
+        std::fwrite(&va, 4, 1, out);
+        std::fwrite(&size, 4, 1, out);
+        std::fwrite(reinterpret_cast<const void*>(uintptr_t(lo)), 1, size, out);
+        total += size;
+    }
+    std::fclose(maps);
+    std::fclose(out);
+    LOGI("harness: frame %llu, %llu MB of guest memory dumped", (unsigned long long)frame, (unsigned long long)(total >> 20));
+}
+
 
 class NullBackend final : public Backend {
 public:
@@ -46,7 +89,10 @@ public:
         }
         if (draws_ == last_draws_) empty_++;
         last_draws_ = draws_;
-        if (drawing_ && !snap_) reference::WriteTga(front, File("cap/ref_%05llu.tga", frames_).c_str());
+        // breakdown-recomp patch: REF_FROM=F draws every frame from F (for effects that read the last frame), still saving every REF
+        static const long every_save = harness::Env("REF");
+        if (drawing_ && !snap_ && every_save && frames_ % every_save == 0 && long(frames_) >= harness::Env("REF_AFTER"))
+            reference::WriteTga(front, File("cap/ref_%05llu.tga", frames_).c_str());
         // snap asks for the next two frames drawn
         std::string snap = (app::ExeDir() / "snap").string();
         if (snap_ == 2) {
@@ -61,9 +107,18 @@ public:
             snap_ = 1;
         }
         static const long every = harness::Env("REF"), cap = harness::Env("CAP");
-        drawing_ = snap_ || (every && (frames_ + 1) % every == 0);
+        static const long from = harness::Env("REF_FROM");
+        // breakdown-recomp patch: REF_AFTER=F saves the REF frames only from frame F on
+        static const long after = harness::Env("REF_AFTER");
+        drawing_ = snap_ || (every && long(frames_ + 1) >= after && (frames_ + 1) % every == 0) ||
+                   (from && long(frames_ + 1) >= from);
         if (drawing_) reference::BeginFrame();
         harness::g_frames = frames_ + 1;
+        DumpMemory(frames_);
+        // breakdown-recomp patch: FRAMELOG=1 logs each frame's draw count, for lining runs up by their scene cuts
+        static const bool framelog = harness::Env("FRAMELOG") != 0;
+        if (framelog) LOGI("framelog %llu %llu", frames_ + 1, draws_ - framelog_draws_);
+        framelog_draws_ = draws_;
         if (++frames_ % 60 == 0) LOGI("renderer: frame %llu, %llu draws, %llu empty frames", frames_, draws_, empty_);
         if (cap && frames_ % cap == 0) list_ = std::fopen(File("cap/draws_%05llu.txt", frames_).c_str(), "w");
     }
@@ -73,6 +128,7 @@ public:
     void SetGamma(const uint8_t*) override {}
 
 private:
+    unsigned long long framelog_draws_ = 0;
     static std::string File(const char* fmt, unsigned long long n) {
         char name[64];
         std::snprintf(name, sizeof name, fmt, n);

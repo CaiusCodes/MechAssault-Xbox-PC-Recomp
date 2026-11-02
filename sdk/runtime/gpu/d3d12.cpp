@@ -29,6 +29,7 @@
 #include <backends/imgui_impl_dx12.h>
 #include <backends/imgui_impl_win32.h>
 
+#include "app/overlay.h"  // breakdown-recomp patch
 #include "app/app.h"
 #include "core/diag.h"
 #include "core/log.h"
@@ -38,6 +39,7 @@
 #include "gpu/texture.h"
 #include "gpu/texturedumper.h"
 #include "gpu/vertex.h"
+#include "gpu/widescreen.h"  // breakdown-recomp patch
 #include "kernel/kernel.h"
 
 using Microsoft::WRL::ComPtr;
@@ -94,6 +96,7 @@ struct Perf {
     uint64_t syncs = 0;
     uint64_t psos = 0;
     uint64_t shaders = 0;
+    uint64_t shaders_cached = 0;  // breakdown-recomp patch: loaded from the disk cache
     uint64_t raw = 0;
     uint64_t lates = 0;
 };
@@ -137,6 +140,68 @@ float4 psmain(O i) : SV_Target {
     c.rgb *= opts.w;
     if (opts.x > 0) c.rgb = float3(lut.Sample(ps, float2(c.r, 0.5)).r, lut.Sample(ps, float2(c.g, 0.5)).g, lut.Sample(ps, float2(c.b, 0.5)).b);
     return float4(c.rgb, opts.y > 0 ? c.a : 1);
+}
+)";
+
+// breakdown-recomp patch: post-process anti-aliasing on the finished frame, at the render scale, before it is scaled
+// to the window: FXAA's method (Lottes): a luma contrast test, the edge's direction, a search along it for its ends,
+// and a blend across it by where the pixel sits on the edge, plus a little sub-pixel smoothing
+const char* kFxaaHlsl = R"(
+cbuffer B : register(b1) { float4 p0; float4 p1; };
+Texture2D img : register(t0);
+SamplerState ls : register(s0);
+struct O { float4 p : SV_Position; float2 uv : TEXCOORD0; };
+O vs(uint id : SV_VertexID) {
+    O o;
+    float2 t = float2((id << 1) & 2, id & 2);
+    o.p = float4(t * float2(2, -2) + float2(-1, 1), 0, 1);
+    o.uv = t;
+    return o;
+}
+float L(float2 uv) { return dot(img.SampleLevel(ls, uv, 0).rgb, float3(0.299, 0.587, 0.114)); }
+float4 psmain(O i) : SV_Target {
+    float2 r = p0.xy, uv = i.uv;
+    float4 cm = img.SampleLevel(ls, uv, 0);
+    float m = dot(cm.rgb, float3(0.299, 0.587, 0.114));
+    float n = L(uv + float2(0, -r.y)), s = L(uv + float2(0, r.y));
+    float w = L(uv + float2(-r.x, 0)), e = L(uv + float2(r.x, 0));
+    float hi = max(m, max(max(n, s), max(w, e))), lo = min(m, min(min(n, s), min(w, e)));
+    float range = hi - lo;
+    if (range < max(0.0312, hi * 0.125)) return cm;
+    float nw = L(uv - r), se = L(uv + r), ne = L(uv + float2(r.x, -r.y)), sw = L(uv + float2(-r.x, r.y));
+    float eh = abs(nw + sw - 2 * w) + 2 * abs(n + s - 2 * m) + abs(ne + se - 2 * e);
+    float ev = abs(nw + ne - 2 * n) + 2 * abs(w + e - 2 * m) + abs(sw + se - 2 * s);
+    bool horz = eh >= ev;
+    float l1 = horz ? n : w, l2 = horz ? s : e;
+    float g1 = l1 - m, g2 = l2 - m;
+    bool first = abs(g1) >= abs(g2);
+    float grad = 0.25 * max(abs(g1), abs(g2));
+    float stp = horz ? r.y : r.x;
+    float avg = 0.5 * ((first ? l1 : l2) + m);
+    if (first) stp = -stp;
+    float2 cur = uv;
+    if (horz) cur.y += stp * 0.5; else cur.x += stp * 0.5;
+    float2 off = horz ? float2(r.x, 0) : float2(0, r.y);
+    float2 u1 = cur - off, u2 = cur + off;
+    float e1 = L(u1) - avg, e2 = L(u2) - avg;
+    bool d1 = abs(e1) >= grad, d2 = abs(e2) >= grad;
+    static const float kSteps[10] = {1, 1, 1, 1, 1.5, 2, 2, 2, 4, 8};
+    [loop] for (int k = 0; k < 10 && !(d1 && d2); k++) {
+        if (!d1) { u1 -= off * kSteps[k]; e1 = L(u1) - avg; d1 = abs(e1) >= grad; }
+        if (!d2) { u2 += off * kSteps[k]; e2 = L(u2) - avg; d2 = abs(e2) >= grad; }
+    }
+    float a = horz ? uv.x - u1.x : uv.y - u1.y;
+    float b = horz ? u2.x - uv.x : u2.y - uv.y;
+    bool nearer1 = a < b;
+    float edge = 0.5 - min(a, b) / (a + b);
+    bool ok = ((nearer1 ? e1 : e2) < 0) != (m < avg);
+    float blend = ok ? edge : 0;
+    float mean = (2 * (n + s + w + e) + nw + ne + sw + se) / 12;
+    float sub = saturate(abs(mean - m) / range);
+    sub = (-2 * sub + 3) * sub * sub;
+    blend = max(blend, sub * sub * 0.75);
+    if (horz) uv.y += blend * stp; else uv.x += blend * stp;
+    return float4(img.SampleLevel(ls, uv, 0).rgb, cm.a);
 }
 )";
 
@@ -442,6 +507,7 @@ struct DrawShaders {
     uint64_t vh = 0;
     uint64_t pkey = 0;
     uint64_t ph = 0;
+    uint32_t sampled = 0xF;  // breakdown-recomp patch: SampledStages of the pixel shader
     ID3DBlob* vs_code = nullptr;
     ID3DBlob* ps_code = nullptr;
 };
@@ -551,6 +617,10 @@ private:
                                       DrawTextures& stages);
     ID3D12Resource* BindGuestTexture(const State& s, int stage, const TextureDesc& d, const FormatInfo& fi,
                                      DrawTextures& stages);
+    // breakdown-recomp patch: a texture laid inside a colour target at an offset (Breakdown reads its back buffer
+    // 16 lines down as a 640x448 texture): the target and the texel offset, null when none holds it
+    Target* ContainingTarget(const TextureDesc& d, const FormatInfo& fi, uint32_t& x0, uint32_t& y0);
+    Target* SubCopy(Target& parent, const TextureDesc& d, uint32_t x0, uint32_t y0);
     bool CreateTexture(Tex& tx, const TextureDesc& d, const FormatInfo& fi, uint64_t key);
     void UploadTexture(Tex& tx, const TextureDesc& d, const FormatInfo& fi, const uint8_t* p, const uint32_t* colours,
                        bool same);
@@ -615,7 +685,10 @@ private:
     void ResizeSwap();
     void UploadGammaRamp();
     void DrawFrame(Target* t, uint32_t bi);
-    void BlitFrame(Target& t);
+    void BlitFrame(ID3D12Resource* res, DXGI_FORMAT fmt, uint32_t h);
+    // breakdown-recomp patch: the anti-aliased copy of the frame, null when off or unavailable
+    ID3D12Resource* AntiAlias(Target& t);
+    bool EnsureAaTarget(uint32_t w, uint32_t h);
     void RenderUi();
     void ReleaseOldTextures();
     void ResetFrame();
@@ -729,6 +802,13 @@ private:
     std::unordered_map<uint64_t, uint32_t> samplers_;
     uint32_t smp_used_ = 0;
     std::unordered_map<uint64_t, Target> targets_;
+    std::unordered_map<uint64_t, Target> subs_;  // breakdown-recomp patch: SubCopy's copies, by texture
+    // breakdown-recomp patch: targets set aside when a surface of another size took their address, by
+    // (address, depth, size); Breakdown alternates two sizes at its glow and blur addresses every frame
+    std::unordered_map<uint64_t, Target> aside_;
+    static uint64_t AsideKey(uint32_t data, bool depth, uint32_t gw, uint32_t gh) {
+        return uint64_t(data) << 1 | (depth ? 1 : 0) | uint64_t(gw & 0x3FFF) << 33 | uint64_t(gh & 0x3FFF) << 47;
+    }
     std::unordered_map<uint32_t, uint64_t> target_used_;  // target address to the frame it was last used
     std::array<UsedTarget, 4> recent_used_{};
     uint32_t recent_used_next_ = 0;
@@ -754,6 +834,9 @@ private:
     std::vector<CapTex> cap_tex_;
     ComPtr<ID3D12Resource> lut_;
     D3D12_RESOURCE_STATES lut_state_ = D3D12_RESOURCE_STATE_COPY_DEST;
+    ComPtr<ID3D12Resource> aa_;  // breakdown-recomp patch: the anti-aliased frame
+    D3D12_RESOURCE_STATES aa_state_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    uint32_t aa_w_ = 0, aa_h_ = 0, aa_rtv_ = UINT32_MAX;
     uint8_t ramp_[768] = {};
     bool ramp_dirty_ = false;
     bool gamma_ = false;
@@ -1166,7 +1249,28 @@ Target* D3D12Backend::EnsureTarget(const Surface& s, bool depth) {
     TargetSlot slot = FindTargetSlot(s, depth, alt);
     UpdateTargetUsed(slot.data);
     if (slot.sized) return &slot.it->second;
-    if (slot.it != targets_.end()) ReleaseTarget(slot.it);
+    // breakdown-recomp patch: the other size steps aside, and one set aside for this size comes back
+    if (slot.it != targets_.end()) {
+        Target& cur = slot.it->second;
+        auto back = aside_.find(AsideKey(slot.data, depth, slot.gw, slot.gh));
+        if (back != aside_.end() || aside_.size() < 64) {
+            if (bound_rt_ == &cur || bound_ds_ == &cur) bound_rt_ = bound_ds_ = nullptr;
+            Target keep = std::move(cur);
+            targets_.erase(slot.it);
+            if (back != aside_.end()) {
+                Target t = std::move(back->second);
+                aside_.erase(back);
+                aside_[AsideKey(keep.data, keep.depth, keep.gw, keep.gh)] = std::move(keep);
+                t.epoch = DirtyEpoch(slot.data);
+                t.sig = MemSig(slot.data, t.bytes);
+                auto& ref = targets_[slot.key] = std::move(t);
+                return &ref;
+            }
+            aside_[AsideKey(keep.data, keep.depth, keep.gw, keep.gh)] = std::move(keep);
+        } else {
+            ReleaseTarget(slot.it);
+        }
+    }
     Target t;
     t.depth = depth;
     t.gw = slot.gw;
@@ -1414,6 +1518,21 @@ void D3D12Backend::Blit(ID3D12Resource* src, DXGI_FORMAT fmt, const float uvrect
     DrawFullScreen(EnsureBlitPipeline(o.rtv, o.over), cb.gpu, slot, si);
 }
 
+// breakdown-recomp patch: compiled shaders are kept on disk (runtime\shaders\<hash>.dxbc). D3DCompile takes
+// milliseconds a shader and a new scene's first frames ask for dozens, which showed as stalls at scene changes; from
+// the second run on they load instead. Empty when the folder cannot be made: no disk cache.
+namespace {
+const std::filesystem::path& ShaderCacheDir() {
+    static const std::filesystem::path dir = [] {
+        std::filesystem::path p = app::Paths().runtime / "shaders";
+        std::error_code ec;
+        std::filesystem::create_directories(p, ec);
+        return ec ? std::filesystem::path() : p;
+    }();
+    return dir;
+}
+}  // namespace
+
 ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const char* profile, uint64_t& hash) {
     // one source can hold several entry points
     uint64_t profile_seed = Hash(profile, std::strlen(profile));
@@ -1422,6 +1541,26 @@ ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const
     auto it = blobs_.find(hash);
     if (it != blobs_.end()) return it->second.Get();
     ComPtr<ID3DBlob> code;
+    std::filesystem::path cached;
+    if (!ShaderCacheDir().empty()) {
+        char name[40];
+        std::snprintf(name, sizeof(name), "%016llx.dxbc", static_cast<unsigned long long>(hash));
+        cached = ShaderCacheDir() / name;
+        if (FILE* f = _wfopen(cached.c_str(), L"rb")) {
+            std::fseek(f, 0, SEEK_END);
+            long size = std::ftell(f);
+            std::fseek(f, 0, SEEK_SET);
+            if (size > 0 && SUCCEEDED(D3DCreateBlob(SIZE_T(size), &code)) &&
+                std::fread(code->GetBufferPointer(), 1, size_t(size), f) == size_t(size)) {
+                std::fclose(f);
+                g_perf.shaders_cached++;
+                blobs_[hash] = code;
+                return code.Get();
+            }
+            std::fclose(f);
+            code.Reset();
+        }
+    }
     ComPtr<ID3DBlob> err;
     PerfScope perf_compile{g_perf.compile};
     g_perf.shaders++;
@@ -1432,6 +1571,18 @@ ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const
         LOGE("%s", src.c_str());
         blobs_[hash] = nullptr;
         return nullptr;
+    }
+    if (!cached.empty()) {
+        // written aside and renamed: a second instance or a crash never leaves half a file under the real name
+        std::filesystem::path tmp = cached;
+        tmp += L".tmp" + std::to_wstring(GetCurrentProcessId());
+        if (FILE* f = _wfopen(tmp.c_str(), L"wb")) {
+            bool ok = std::fwrite(code->GetBufferPointer(), 1, code->GetBufferSize(), f) == code->GetBufferSize();
+            ok = std::fclose(f) == 0 && ok;
+            std::error_code ec;
+            if (ok) std::filesystem::rename(tmp, cached, ec);
+            if (!ok || ec) std::filesystem::remove(tmp, ec);
+        }
     }
     blobs_[hash] = code;
     return code.Get();
@@ -1959,7 +2110,76 @@ ID3D12Resource* D3D12Backend::BindTexture(const State& s, int stage, DrawTexture
     if (tit != targets_.end() && !d.cube && d.depth == 1 && !fi.compressed) {
         return BindTargetTexture(s, stage, d, tit->second, box, stages);
     }
+    // breakdown-recomp patch: inside a target at an offset, sample a copy of that part of it
+    uint32_t x0 = 0, y0 = 0;
+    if (Target* parent = !alt && !d.cube && d.depth == 1 ? ContainingTarget(d, fi, x0, y0) : nullptr) {
+        if (Target* sub = SubCopy(*parent, d, x0, y0)) return BindTargetTexture(s, stage, d, *sub, box, stages);
+    }
     return BindGuestTexture(s, stage, d, fi, stages);
+}
+
+Target* D3D12Backend::ContainingTarget(const TextureDesc& d, const FormatInfo& fi, uint32_t& x0, uint32_t& y0) {
+    if (fi.depth || fi.compressed || fi.swizzled || fi.bits != 32 || !d.linear) return nullptr;
+    for (auto& [key, t] : targets_) {
+        if (t.depth || !t.res || d.data <= t.data || d.data >= t.data + t.bytes) continue;
+        uint32_t pitch = GuestPitch(t.gw), off = d.data - t.data;
+        if (d.pitch && d.pitch != pitch) continue;
+        x0 = (off % pitch) / 4;
+        y0 = off / pitch;
+        if ((off % pitch) % 4 || x0 + d.width > t.gw || y0 + d.height > t.gh) continue;
+        LOG_FIRST(8, "d3d12: texture %08X %ux%u is target %08X from (%u, %u), sampled from a copy", d.data, d.width,
+                  d.height, t.data, x0, y0);
+        return &t;
+    }
+    return nullptr;
+}
+
+Target* D3D12Backend::SubCopy(Target& p, const TextureDesc& d, uint32_t x0, uint32_t y0) {
+    D3D12_RESOURCE_DESC pd = p.res->GetDesc();
+    if (pd.SampleDesc.Count > 1) return nullptr;
+    float sc = float(p.w) / float(p.gw);
+    uint32_t w = std::max(1u, uint32_t(std::lround(d.width * sc))), h = std::max(1u, uint32_t(std::lround(d.height * sc)));
+    uint32_t sx = std::min(uint32_t(std::lround(x0 * sc)), p.w), sy = std::min(uint32_t(std::lround(y0 * sc)), p.h);
+    w = std::min(w, p.w - sx);
+    h = std::min(h, p.h - sy);
+    if (!w || !h) return nullptr;
+    uint64_t key = uint64_t(d.data) << 24 | uint64_t(d.width & 0xFFF) << 12 | (d.height & 0xFFF);
+    Target& c = subs_[key];
+    if (!c.res || c.w != w || c.h != h || c.fmt != p.fmt) {
+        if (c.res) CurrentFrame().garbage.push_back(c.res);
+        c = Target{};
+        D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_DEFAULT};
+        D3D12_RESOURCE_DESC td = pd;
+        td.Width = w;
+        td.Height = h;
+        td.MipLevels = 1;
+        td.Flags = D3D12_RESOURCE_FLAG_NONE;
+        c.state = D3D12_RESOURCE_STATE_COPY_DEST;
+        if (FAILED(dev_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td, c.state, nullptr, IID_PPV_ARGS(&c.res)))) {
+            subs_.erase(key);
+            return nullptr;
+        }
+        c.gw = d.width;
+        c.gh = d.height;
+        c.w = w;
+        c.h = h;
+        c.fmt = p.fmt;
+        c.range = p.range;
+        c.data = d.data;
+        c.epoch = ~0ull;  // never taken from guest memory: the GPU target is the truth
+    }
+    Transition(p.res.Get(), p.state, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    Transition(c.res.Get(), c.state, D3D12_RESOURCE_STATE_COPY_DEST);
+    D3D12_TEXTURE_COPY_LOCATION dst{}, src{};
+    dst.pResource = c.res.Get();
+    dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    src.pResource = p.res.Get();
+    src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    D3D12_BOX box{sx, sy, 0, sx + w, sy + h, 1};
+    cl_->CopyTextureRegion(&dst, 0, 0, 0, &src, &box);
+    if (cap_) fprintf(cap_, "%04u sub copy of target %08X (%u, %u) %ux%u for texture %08X\n", cap_i_++, p.data, x0, y0,
+                      d.width, d.height, d.data);
+    return &c;
 }
 
 // D3DTEXF: 1 point, 2 linear, 3 anisotropic
@@ -2455,6 +2675,16 @@ void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const 
     if (ext_) ext_->Constants(reinterpret_cast<float(*)[4]>(vsc), c.ext, bound_rt_, k.blend ? k.src : 1);
     FillDepthConstants(s, sh, k, c);
     FillTextureConstants(s, sh, stages, c);
+    // breakdown-recomp patch: true widescreen (gpu/widescreen.h)
+    bool reads_target = false;
+    // only stages the shader reads: the HUD keeps a glow buffer bound that it never samples
+    for (int i = 0; i < 4; i++)
+        reads_target |= ((sh.sampled >> i) & 1) && (stages.rt[i] || (stages.info[i].flags & kTexTarget) != 0);
+    c.wide[0] = gpu::wide::Factor(size.w, size.h, reads_target);
+    if (c.wide[0] != 1.0f) {
+        TextureDesc movie;
+        c.wide[1] = s.textures[0] && Describe(s.textures[0], movie) && gpu::wide::MovieFormat(movie.format) ? 1.0f : 0.0f;
+    }
     if (sh.fixed_transform) {
         FillTransformConstants(s, size, c);
         FillLightConstants(s, sh.fk, c);
@@ -2832,6 +3062,7 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t 
     PixelKey pk = MakePixelKey(s, stages.info);
     pk.quad = sh.quad;
     sh.pkey = Hash(&pk, sizeof(pk));
+    sh.sampled = SampledStages(pk);
     EnsurePixelShader(pk, sh);
     if (!sh.vs_code || !sh.ps_code) return;
 
@@ -2867,6 +3098,10 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t 
     uint32_t query = BeginCountedDraw(s);
     DrawGeometry(a);
     EndCountedDraw(query);
+    // breakdown-recomp patch: XBE_CAPTURE_STEPS set, a capture also saves the target after each blended draw, named
+    // by the index after the draw's own in frame.txt
+    static const bool steps = std::getenv("XBE_CAPTURE_STEPS") != nullptr;
+    if (cap_ && steps && k.blend && bound_rt_) Capture(*bound_rt_, "blend", bound_rt_->range);
 }
 
 // a guest rect scaled to the target and clamped to it
@@ -3223,12 +3458,13 @@ void D3D12Backend::UploadGammaRamp() {
     cl_->CopyTextureRegion(&dl, 0, 0, 0, &sl, nullptr);
 }
 
-void D3D12Backend::BlitFrame(Target& t) {
-    // 16:9 when the console reports a widescreen display, else 4:3
-    bool wide = app::Widescreen();
-    float aspect = wide ? 16.0f / 9.0f : 4.0f / 3.0f;
+// res: the frame, h tall, in the pixel shader resource state
+void D3D12Backend::BlitFrame(ID3D12Resource* res, DXGI_FORMAT fmt, uint32_t h_src) {
+    // breakdown-recomp patch: the aspect ratio setting: 4:3, 16:9, or the window's own shape
     float w = float(bb_w_);
     float h = float(bb_h_);
+    float aspect = app::PictureAspect();
+    if (aspect <= 0) aspect = w / std::max(h, 1.0f);
     float vw = std::min(w, h * aspect);
     float vh = vw / aspect;
     float uv[4] = {0, 0, 1, 1};
@@ -3237,8 +3473,49 @@ void D3D12Backend::BlitFrame(Target& t) {
     cl_->RSSetViewports(1, &vp);
     cl_->RSSetScissorRects(1, &scissor);
     binds_ = {};
+    // breakdown-recomp patch: a frame rendered taller than the window is averaged down (n x n samples a pixel), so a
+    // render scale above the display's resolution is supersampling, not skipped pixels
+    uint32_t taps = std::clamp<uint32_t>(uint32_t(std::ceil(float(h_src) / std::max(vh, 1.0f) - 0.05f)), 1, 4);
+    Blit(res, fmt, uv, {.gamma = gamma_, .taps = taps});
+}
+
+// breakdown-recomp patch: FXAA at the frame's own size into aa_
+bool D3D12Backend::EnsureAaTarget(uint32_t w, uint32_t h) {
+    if (aa_ && aa_w_ == w && aa_h_ == h) return true;
+    if (aa_) CurrentFrame().garbage.push_back(aa_);
+    aa_.Reset();
+    if (aa_rtv_ == UINT32_MAX) {
+        if (free_rtv_.empty()) return false;
+        aa_rtv_ = free_rtv_.back();
+        free_rtv_.pop_back();
+    }
+    D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_DEFAULT};
+    D3D12_RESOURCE_DESC td = Texture2DDesc(kBgra, w, h);
+    td.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    aa_state_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    if (FAILED(dev_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td, aa_state_, nullptr, IID_PPV_ARGS(&aa_)))) {
+        LOG_FIRST(1, "d3d12: no %ux%u target for anti-aliasing", w, h);
+        return false;
+    }
+    dev_->CreateRenderTargetView(aa_.Get(), nullptr, Cpu(rtv_heap_.Get(), aa_rtv_, rtv_inc_));
+    aa_w_ = w;
+    aa_h_ = h;
+    return true;
+}
+
+ID3D12Resource* D3D12Backend::AntiAlias(Target& t) {
+    if (app::Get().anti_aliasing != 1 || !t.res) return nullptr;
+    D3D12_RESOURCE_DESC d = t.res->GetDesc();
+    uint32_t w = uint32_t(d.Width), h = d.Height;
+    if (!w || !h || !EnsureAaTarget(w, h)) return nullptr;
     Transition(t.res.Get(), t.state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    Blit(t.res.Get(), t.fmt, uv, {.gamma = gamma_});
+    Transition(aa_.Get(), aa_state_, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    ID3D12Resource* src[3] = {t.res.Get(), nullptr, nullptr};
+    DXGI_FORMAT fmt[3] = {t.fmt, kBgra, kBgra};
+    float p[8] = {1.0f / float(w), 1.0f / float(h), 0, 0, 0, 0, 0, 0};
+    Pass(kFxaaHlsl, "psmain", kBgra, Cpu(rtv_heap_.Get(), aa_rtv_, rtv_inc_), w, h, src, fmt, p, -1);
+    Transition(aa_.Get(), aa_state_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    return aa_.Get();
 }
 
 void D3D12Backend::RenderUi() {
@@ -3246,6 +3523,7 @@ void D3D12Backend::RenderUi() {
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
+    app::DrawOverlay();  // breakdown-recomp patch: FPS counter, diagnostics, settings menu
     if (app::kGame.ui) app::kGame.ui(fps_);
     ImGui::Render();
     ID3D12DescriptorHeap* uh[] = {ui_heap_.Get()};
@@ -3254,6 +3532,16 @@ void D3D12Backend::RenderUi() {
 }
 
 void D3D12Backend::DrawFrame(Target* t, uint32_t bi) {
+    ID3D12Resource* frame = nullptr;
+    DXGI_FORMAT frame_fmt = kBgra;
+    if (t) {
+        frame = AntiAlias(*t);  // before the back buffer is bound: it draws to its own target
+        if (!frame) {
+            Transition(t->res.Get(), t->state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            frame = t->res.Get();
+            frame_fmt = t->fmt;
+        }
+    }
     D3D12_RESOURCE_STATES bs = D3D12_RESOURCE_STATE_PRESENT;
     Transition(bb_[bi].Get(), bs, D3D12_RESOURCE_STATE_RENDER_TARGET);
     D3D12_CPU_DESCRIPTOR_HANDLE rh = Cpu(rtv_heap_.Get(), kRtvCount + bi, rtv_inc_);
@@ -3261,7 +3549,7 @@ void D3D12Backend::DrawFrame(Target* t, uint32_t bi) {
     cl_->ClearRenderTargetView(rh, black, 0, nullptr);
     cl_->OMSetRenderTargets(1, &rh, FALSE, nullptr);
     bound_rt_ = bound_ds_ = nullptr;
-    if (t) BlitFrame(*t);
+    if (frame) BlitFrame(frame, frame_fmt, frame->GetDesc().Height);
     RenderUi();
     Transition(bb_[bi].Get(), bs, D3D12_RESOURCE_STATE_PRESENT);
 }
@@ -3308,6 +3596,7 @@ void D3D12Backend::CountFps() {
     }
 }
 
+// breakdown-recomp patch: Report level, so XBE_PERF works in release builds (Info is dropped there)
 void LogPerf() {
     static PerfClock::time_point perf_start = PerfClock::now();
     static uint64_t perf_frames = 0;
@@ -3317,12 +3606,12 @@ void LogPerf() {
         Perf& p = g_perf;
         double n = double(perf_frames);
         double host = p.draw + p.clear + p.copy + p.present + p.sync;
-        LOGI("perf: %.1f fps %.2f ms/frame | host %.2f (draw %.2f: assemble %.2f bind %.2f [check %.2f, upload %.2f] "
+        LOGR("perf: %.1f fps %.2f ms/frame | host %.2f (draw %.2f: assemble %.2f bind %.2f [check %.2f, upload %.2f] "
              "compile %.2f; clear %.2f copy %.2f sync %.2f present %.2f [swap %.2f wait %.2f]) other %.2f",
              n * 1000.0 / el, el / n, host / n, p.draw / n, p.assemble / n, p.bind / n, p.sig / n, p.texup / n,
              p.compile / n, p.clear / n, p.copy / n, p.sync / n, p.present / n, p.swap / n, p.wait / n,
              (el - host) / n);
-        LOGI("perf: title thread per frame: recording %.2f ms, waiting %.2f ms (%.1f waits: read-back %.2f "
+        LOGR("perf: title thread per frame: recording %.2f ms, waiting %.2f ms (%.1f waits: read-back %.2f "
              "resource %.2f fence %.2f flush %.2f copy %.2f, next frame %.2f) | read-backs waited for: %.1f lock, "
              "%.1f NOOVERWRITE",
              g_perf_capture_ns.exchange(0) / n / 1e6, g_perf_wait_ns.exchange(0) / n / 1e6,
@@ -3331,13 +3620,13 @@ void LogPerf() {
              g_perf_wait_kind_ns[3].exchange(0) / n / 1e6, g_perf_wait_kind_ns[4].exchange(0) / n / 1e6,
              g_perf_wait_kind_ns[5].exchange(0) / n / 1e6, g_perf_sync_block.exchange(0) / n,
              g_perf_sync_late.exchange(0) / n);
-        LOGI("perf: per frame %.0f draws (%.0f raw) %.0fk verts %.1f MB upload %.1f overflow | %.0f checks %.2f MB "
+        LOGR("perf: per frame %.0f draws (%.0f raw) %.0fk verts %.1f MB upload %.1f overflow | %.0f checks %.2f MB "
              "hashed | %.1f tex uploads %.2f MB, %.1f new tex, %.1f new targets, %.1f target uploads, %.1f shrinks, "
-             "%.1f read-backs %.1f late | %llu shaders %llu psos this second",
+             "%.1f read-backs %.1f late | %llu shaders compiled, %llu from the disk cache, %llu psos this second",
              p.draws / n, p.raw / n, p.verts / n / 1000.0, p.upload / n / 1048576.0, p.overflow / n, p.sigs / n,
              p.sig_bytes / n / 1048576.0, p.texups / n, p.texup_bytes / n / 1048576.0, p.newtex / n,
              p.targets / n, p.rtups / n, p.shrinks / n, p.syncs / n, p.lates / n,
-             (unsigned long long)p.shaders, (unsigned long long)p.psos);
+             (unsigned long long)p.shaders, (unsigned long long)p.shaders_cached, (unsigned long long)p.psos);
         g_perf = Perf{};
         perf_start = PerfClock::now();
         perf_frames = 0;
@@ -3352,6 +3641,7 @@ void D3D12Backend::Present(const Surface& front) {
         StartCapture();
     }
     ResizeSwap();
+    gpu::wide::SetView(app::WideView());  // breakdown-recomp patch: the next frame's draws
     Target* t = EnsureTarget(front, false);
     if (t && LatchCpuWrite(*t)) UploadTarget(*t, front);
     if (t) Resolve(*t);
@@ -3392,6 +3682,14 @@ void D3D12Backend::ApplySettings() {
         Flush();
         for (auto& [key, tg] : targets_) (tg.depth ? free_dsv_ : free_rtv_).push_back(tg.view);
         targets_.clear();
+        for (auto& [key, c] : subs_) CurrentFrame().garbage.push_back(c.res);  // breakdown-recomp patch
+        subs_.clear();
+        for (auto& [key, tg] : aside_) {
+            (tg.depth ? free_dsv_ : free_rtv_).push_back(tg.view);
+            CurrentFrame().garbage.push_back(tg.res);
+            if (tg.fb) CurrentFrame().garbage.push_back(tg.fb);
+        }
+        aside_.clear();
         scale_ = want;
         if (ext_) ext_->Reset(*this);
         bound_rt_ = bound_ds_ = nullptr;

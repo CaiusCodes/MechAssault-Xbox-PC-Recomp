@@ -1,6 +1,11 @@
 // headless host: <exe> <game folder> [--instance N], run from the folder that gets logs, hdd and cap
 // the game folder may come from GAME_DIR instead
+#include <execinfo.h>
+#include <signal.h>
+#include <unistd.h>
+
 #include <chrono>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -14,7 +19,27 @@
 #include "image_symbols.h"
 #include "kernel/kernel.h"
 
+// breakdown-recomp patch: a crash prints the fault address, the thread and a host backtrace to stderr, then the log
+namespace {
+void Crash(int sig, siginfo_t* info, void*) {
+    char name[32] = "?", line[160];
+    pthread_getname_np(pthread_self(), name, sizeof name);
+    int n = std::snprintf(line, sizeof line, "harness: signal %d at address %p in thread '%s'\n", sig, info->si_addr, name);
+    write(2, line, size_t(n));
+    void* frames[64];
+    int count = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, count, 2);
+    logx::Flush();
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+}  // namespace
+
 int main(int argc, char** argv) {
+    struct sigaction sa = {};
+    sa.sa_sigaction = Crash;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    for (int sig : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) sigaction(sig, &sa, nullptr);
     std::string game;
     for (int i = 1; i < argc; i++) {
         if (!std::strcmp(argv[i], "--instance") && i + 1 < argc) setenv("INSTANCE", argv[++i], 1);

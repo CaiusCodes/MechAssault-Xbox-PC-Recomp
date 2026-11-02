@@ -24,7 +24,7 @@ namespace {
 
 const char* kModes[] = {"fullscreen", "borderless", "windowed"};
 
-std::filesystem::path File() { return ExeDir() / kGame.settings; }
+std::filesystem::path File() { return Paths().settings / kGame.settings; }  // breakdown-recomp patch: Paths()
 
 }  // namespace
 
@@ -54,6 +54,14 @@ void Load() {
     s.dump_textures = t["dump_textures"].value_or(s.dump_textures);
     s.texture_dump_format = std::min(t["texture_dump_format"].value_or(s.texture_dump_format), 1u);
     s.join_ip = t["join_ip"].value_or(s.join_ip);
+    // breakdown-recomp patch
+    s.render_scale = std::min(t["render_scale"].value_or(s.render_scale), kMaxRenderScale);
+    s.perf_overlay = std::min(t["perf_overlay"].value_or(s.perf_overlay), 2u);
+    s.diagnostics_log = t["diagnostics_log"].value_or(s.diagnostics_log);
+    s.vblank_sync = std::min(t["vblank_sync"].value_or(s.vblank_sync), 1u);
+    s.anti_aliasing = std::min(t["anti_aliasing"].value_or(s.anti_aliasing), 1u);
+    s.refresh_hz = std::min(t["refresh_rate"].value_or(s.refresh_hz), 1000u);
+    s.aspect_ratio = std::min(t["aspect_ratio"].value_or(s.aspect_ratio), kAspectFill);
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
         else *o.value = t[o.key].value_or(*o.value);
@@ -75,7 +83,15 @@ toml::table Table() {
                   {"custom_textures", s.custom_textures},
                   {"dump_textures", s.dump_textures},
                   {"texture_dump_format", int64_t(s.texture_dump_format)},
-                  {"join_ip", s.join_ip}};
+                  {"join_ip", s.join_ip},
+                  // breakdown-recomp patch
+                  {"render_scale", int64_t(s.render_scale)},
+                  {"perf_overlay", int64_t(s.perf_overlay)},
+                  {"diagnostics_log", s.diagnostics_log},
+                  {"vblank_sync", int64_t(s.vblank_sync)},
+                  {"anti_aliasing", int64_t(s.anti_aliasing)},
+                  {"refresh_rate", int64_t(s.refresh_hz)},
+                  {"aspect_ratio", int64_t(s.aspect_ratio)}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));
@@ -118,16 +134,26 @@ Mode Output() {
 }
 
 bool Widescreen() {
-    // asked per frame and per HUD quad: the desktop mode lookup only runs when the resolution setting changes
+    const Settings& s = Get();
+    if (s.aspect_ratio != kAspectFill) return s.aspect_ratio == kAspect169;
+    // asked per frame: the desktop mode lookup only runs when the resolution setting changes
     static std::atomic<uint64_t> key{~0ull};
     static std::atomic<bool> wide{true};
-    const Settings& s = Get();
     uint64_t k = uint64_t(s.width) << 32 | s.height;
     if (key.exchange(k) != k) {
         Mode m = Output();
         wide = m.width * 2 >= m.height * 3;  // 3:2 or wider
     }
     return wide;
+}
+
+float PictureAspect() {
+    switch (Get().aspect_ratio) {
+        case kAspectWide: return 4.0f / 3.0f * WideView();
+        case kAspect169: return 16.0f / 9.0f;
+        case kAspectFill: return 0;
+        default: return 4.0f / 3.0f;
+    }
 }
 
 // Output for every frame: the desktop mode lookup reads the registry, so it runs again only when the resolution
@@ -152,8 +178,23 @@ Mode CachedOutput() {
     return mode;
 }
 
+float WideView() {
+    if (Get().aspect_ratio != kAspectWide) return 1;
+    Mode m = CachedOutput();
+    if (!m.width || !m.height) return 1;
+    // up to 32:9; a display narrower than 4:3 (5:4) keeps the 4:3 view
+    return std::clamp(float(m.width) / float(m.height) / (4.0f / 3.0f), 1.0f, 8.0f / 3.0f);
+}
+
 float RenderScale(uint32_t guest_height) {
-    float h = CachedOutput().height * (Get().render_percent / 100.0f);
+    // breakdown-recomp patch: an integer multiple of the title's own resolution
+    if (uint32_t n = Get().render_scale) return float(std::min(n, kMaxRenderScale));
+    // Auto: as many pixels as the picture gets on screen. Widescreen and the stretched modes show the 4:3 render
+    // wider than tall, so the shown width decides (3440x1440 renders 3440x2580 and is shrunk to the height)
+    Mode m = CachedOutput();
+    float aspect = PictureAspect();
+    float shown_w = aspect > 0 ? std::min(float(m.width), m.height * aspect) : float(m.width);
+    float h = std::max(float(m.height), shown_w * 0.75f) * (Get().render_percent / 100.0f);
     return guest_height ? std::max(h / guest_height, 0.1f) : 1.0f;
 }
 

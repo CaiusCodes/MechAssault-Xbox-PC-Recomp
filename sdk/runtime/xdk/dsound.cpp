@@ -81,6 +81,10 @@ X86Func* Find(uint32_t guest);
 #define SYM_IDirectSoundBuffer_Pause FFFFFF0D
 #define HAS_IDirectSoundBuffer_Pause 0
 #endif
+#ifndef SYM_IDirectSoundBuffer_SetLFO
+#define SYM_IDirectSoundBuffer_SetLFO FFFFFF40
+#define HAS_IDirectSoundBuffer_SetLFO 0
+#endif
 #ifndef SYM_IDirectSoundBuffer_SetEG
 #define SYM_IDirectSoundBuffer_SetEG FFFFFF0E
 #define HAS_IDirectSoundBuffer_SetEG 0
@@ -739,7 +743,7 @@ static void AuditExports() {
         SYM(IDirectSound_DownloadEffectsImage), SYM(IDirectSound_GetEffectData), SYM(IDirectSound_CommitEffectData),
         SYM(IDirectSound_GetOutputLevels), SYM(IDirectSoundBuffer_SetPlayRegion), SYM(IDirectSoundBuffer_SetAllParameters),
         SYM(IDirectSoundBuffer_SetFormat), SYM(IDirectSoundBuffer_SetOutputBuffer), SYM(IDirectSoundBuffer_SetRolloffCurve),
-        SYM(IDirectSoundBuffer_StopEx), SYM(IDirectSoundBuffer_Pause), SYM(IDirectSoundBuffer_SetEG),
+        SYM(IDirectSoundBuffer_StopEx), SYM(IDirectSoundBuffer_Pause), SYM(IDirectSoundBuffer_SetEG), SYM(IDirectSoundBuffer_SetLFO),
         SYM(XAudioDownloadEffectsImage), SYM(DirectSoundCreateBuffer), SYM(IDirectSound_CreateSoundBuffer),
         SYM(IDirectSoundBuffer_Release), SYM(IDirectSoundBuffer_Unlock), SYM(IDirectSoundBuffer_SetBufferData),
         SYM(IDirectSoundBuffer_Play), SYM(IDirectSoundBuffer_Stop), SYM(IDirectSoundBuffer_SetLoopRegion),
@@ -994,6 +998,8 @@ BUFFER(Pause, 2) {
 }
 // envelopes are not played
 BUFFER(SetEG, 2) { return 0; }
+// breakdown-recomp patch: (buffer, LFO description). The voice LFOs are not reproduced, as the envelopes are not
+BUFFER(SetLFO, 2) { return 0; }
 // (this, start, length) in bytes, 0 length plays to the end. The loop becomes the whole region.
 BUFFER(SetPlayRegion, 3) {
     if (a[1] > v.bytes || a[2] > v.bytes - a[1]) return 0x88780032u;  // DSERR_INVALIDCALL

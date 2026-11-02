@@ -9,14 +9,17 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <map>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "app/app.h"
+#include "core/frame_stats.h"  // breakdown-recomp patch
 #include "core/diag.h"
 #include "gpu/backend.h"
 #include "gpu/shaders.h"
@@ -77,12 +80,30 @@ bool InCode(uint32_t va);  // cpu/dispatch.cpp
 #define SYM_D3DDevice_RunPushBuffer FFFFFE09
 #define HAS_D3DDevice_RunPushBuffer 0
 #endif
+#ifndef SYM_D3DDevice_InsertCallback
+#define SYM_D3DDevice_InsertCallback FFFFFE43
+#define HAS_D3DDevice_InsertCallback 0
+#endif
+#ifndef SYM_D3DDevice_BeginPushBuffer
+#define SYM_D3DDevice_BeginPushBuffer FFFFFE40
+#define HAS_D3DDevice_BeginPushBuffer 0
+#endif
+#ifndef SYM_D3DDevice_EndPushBuffer
+#define SYM_D3DDevice_EndPushBuffer FFFFFE41
+#define HAS_D3DDevice_EndPushBuffer 0
+#endif
+#ifndef SYM_D3DDevice_GetPushBufferOffset
+#define SYM_D3DDevice_GetPushBufferOffset FFFFFE42
+#define HAS_D3DDevice_GetPushBufferOffset 0
+#endif
 #ifndef SYM_D3D_BlockOnNonSurfaceResource
 #define SYM_D3D_BlockOnNonSurfaceResource FFFFFE0A
 #define HAS_D3D_BlockOnNonSurfaceResource 0
 #endif
 
 namespace d3d {
+inline bool g_dump_on = false;  // breakdown-recomp debug: XBE_PUSHDUMP dumps methods after the first dropped EndPush
+
 
 namespace {
 
@@ -99,6 +120,7 @@ constexpr uint32_t kIndexData = SYM(D3D_IndexData);  // index data base the inli
 constexpr uint32_t kDirtyFlags = SYM(D3D_DirtyFlags);
 constexpr uint32_t kTextureState = SYM(D3D_DeferredTextureState);  // [4][32]
 constexpr uint32_t kRenderState = SYM(D3D_RenderState);            // [166]
+constexpr uint32_t kMCullFaceEnable = 0x308;                       // NV097_SET_CULL_FACE_ENABLE
 constexpr uint32_t kStreams = SYM(D3D_Streams);                    // [16] stride, offset, buffer
 constexpr uint32_t kSimpleEncode = SYM(D3D_SimpleRenderStateEncode);
 
@@ -116,9 +138,20 @@ constexpr uint32_t kStageStates = XDK_TextureState_Stage, kStreamSize = XDK_Stre
 gpu::State g_state;
 std::unique_ptr<gpu::Backend> g_backend;
 std::recursive_mutex g_lock;
+// breakdown-recomp patch: blanks counted by the vertical blank thread, for BlockUntilVerticalBlank
+std::mutex g_blank_mutex;
+std::condition_variable g_blank_cv;
+uint64_t g_blanks = 0;
+uint64_t g_blanks_done = 0;  // blanks whose title callback has returned
+std::atomic<bool> g_blank_thread{false};
 
 // every write to g_state.simple goes through here or marks it
 void SetSimple(uint32_t method, uint32_t v) {
+    // breakdown-recomp patch: the renderers cull by the CullMode render state, but a title's own push buffers
+    // (RunPushBuffer, or commands it writes) can switch the hardware's culling with CULL_FACE_ENABLE alone. The
+    // hardware then stays unculled until the next SetRenderState_CullMode. Turning it back on restores the mode
+    // the library last set, which the library's table holds.
+    if (method == kMCullFaceEnable) g_state.rs[gpu::kRsCullMode] = v ? R32(kRenderState + gpu::kRsCullMode * 4) : 0;
     g_state.simple[method >> 2] = v;
     gpu::MarkSimple(method >> 2);
 }
@@ -319,10 +352,20 @@ void VerticalBlank(X86Context& ctx) {
     uint32_t info = mem::AllocSystem(12), shown = 0;
     auto next = clock::now();
     for (;;) {
-        next = std::max(next + std::chrono::microseconds(16667), clock::now());
-        std::this_thread::sleep_until(next);
+        // breakdown-recomp patch: on the display's own blanks where they fit (app/vblank.cpp), else the timer
+        if (app::WaitDisplayVBlank()) {
+            next = clock::now();
+        } else {
+            next = std::max(next + std::chrono::microseconds(16667), clock::now());
+            std::this_thread::sleep_until(next);
+        }
         uint32_t count = Dev(XDK_CDevice_VBlankCount) + 1, swaps = Dev(kDevSwapCount);
         SetDev(XDK_CDevice_VBlankCount, count);
+        {
+            std::lock_guard<std::mutex> blank(g_blank_mutex);
+            g_blanks++;
+        }
+        g_blank_cv.notify_all();
         ObjectRef event = FromPointer(kDevice + XDK_CDevice_VBlankEvent);
         SetEvent(*event);
         if (uint32_t callback = Dev(XDK_CDevice_VBlankCallback)) {
@@ -332,6 +375,11 @@ void VerticalBlank(X86Context& ctx) {
             W32(info + 8, swaps != shown);
             CallGuest(ctx, callback, {info});
         }
+        {
+            std::lock_guard<std::mutex> blank(g_blank_mutex);
+            g_blanks_done++;
+        }
+        g_blank_cv.notify_all();
         shown = swaps;
         // the title clears the event in its own memory before a wait, which the host object does not see
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -385,6 +433,7 @@ HLE_STDCALL(Direct3D_CreateDevice, 6) {
         SetDev(XDK_CDevice_VBlankEvent + 4, 1);
         static bool started = false;
         if (!started) StartHostThread("vertical blank", VerticalBlank);
+        g_blank_thread = true;
         started = true;
     }
     ApplyDefaultStates(ctx);
@@ -493,8 +542,17 @@ HLE_STDCALL(D3D_MakeRequestedSpace, 2) {
     return ScratchPush();
 }
 
+// breakdown-recomp patch: returns at the next blank of the vertical blank thread, as the library's wait on the
+// blank event does. A fixed 16 ms sleep added to the title's own frame time: Breakdown's menus, which call this
+// once a frame, ran at 56 fps instead of 60.
 HLE_STDCALL(D3DDevice_BlockUntilVerticalBlank, 0) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    if (!g_blank_thread) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        return 0;
+    }
+    std::unique_lock<std::mutex> blank(g_blank_mutex);
+    uint64_t seen = g_blanks;
+    g_blank_cv.wait_for(blank, std::chrono::milliseconds(100), [&] { return g_blanks != seen; });
     return 0;
 }
 // (status): D3DRASTER_STATUS {InVBlank, ScanLine} on a 60 Hz frame clock. The library reads the GPU's scanline,
@@ -624,8 +682,29 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
         }
     }
     Walk(Dev(kDevPush));  // reports asked for at the end of the frame
-    if (g_backend) g_backend->Present(SurfaceOf(g_buffers[1]));
-    app::Pace();
+    // breakdown-recomp patch: frame timing for the FPS counter, diagnostics and the perf log
+    {
+        using clock = std::chrono::steady_clock;
+        auto t0 = clock::now();
+        if (g_backend) g_backend->Present(SurfaceOf(g_buffers[1]));
+        auto t1 = clock::now();
+        framestats::Title().Present(uint32_t(std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count()));
+        app::Pace();
+        framestats::Title().Paced(
+            uint32_t(std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t1).count()));
+        static auto next_log = clock::now() + std::chrono::seconds(10);
+        if ((app::Get().diagnostics_log || diag::Perf()) && clock::now() >= next_log) {
+            next_log = clock::now() + std::chrono::seconds(10);
+            static uint64_t logged = 0;  // the frames since the last line
+            uint64_t count = framestats::Title().Count();
+            framestats::Summary f = framestats::Title().Summarize(std::min<uint64_t>(count - logged, framestats::kCapacity));
+            logged = count;
+            LOGR("frames: %u at %.2f fps (%.2f ms), 1%% low %.2f fps, p99 %.2f ms, max %.2f ms, %u stalls, jitter "
+                 "%.2f ms, present %.2f ms, limiter %.2f ms",
+                 f.frames, f.avg_fps, f.avg_ms, f.low1_fps, f.p99_ms, f.max_ms, f.stalls, f.jitter_ms, f.present_ms,
+                 f.pace_ms);
+        }
+    }
     // like the XDK, the surfaces stay put and their memory rotates: titles keep back buffer pointers and copy its data
     uint32_t last = g_buffers[g_buffer_count - 1], data = R32(last + 4), lk = R32(last + 8);
     for (uint32_t i = g_buffer_count - 1; i > 0; i--) {
@@ -667,6 +746,17 @@ HLE_STDCALL(D3DDevice_CopyRects, 5) {
 HLE_STDCALL(D3DDevice_SetViewport, 1) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     uint32_t v = a[0];
+    if (!v) {
+        // breakdown-recomp patch: no viewport covers the whole render target, as the library's does
+        // (Breakdown's D3DDevice_SetDepthClipPlanes path 0x1BFD58 passes 0)
+        uint32_t size = R32(Dev(kDevRenderTarget) + 16);
+        uint32_t w = Dev(kDevRenderTarget) ? (size & 0xFFF) + 1 : g_state.viewport.w;
+        uint32_t h = Dev(kDevRenderTarget) ? (size >> 12 & 0xFFF) + 1 : g_state.viewport.h;
+        g_state.viewport = {0, 0, w, h, 0.0f, 1.0f};
+        g_state.scissor_count = 0;
+        UpdateViewportConstants();
+        return 0;
+    }
     g_state.viewport = {R32(v), R32(v + 4), R32(v + 8), R32(v + 12), GF(v + 16), GF(v + 20)};
     g_state.scissor_count = 0;
     UpdateViewportConstants();
@@ -899,7 +989,7 @@ HLE_STDCALL(D3DDevice_CreateVertexShader, 4) {
     vs->handle = rec | 1;
     g_vs[vs->handle] = vs;
     W32(out, vs->handle);
-    LOG_FIRST(64, "d3d: vertex shader %08X, %zu decl tokens, %zu instructions, type %X", vs->handle, vs->decl.size(),
+    LOG_FIRST(1000, "d3d: vertex shader %08X, %zu decl tokens, %zu instructions, type %X", vs->handle, vs->decl.size(),
               vs->program.size() / 4, vs->program_type);
     return 0;
 }
@@ -933,6 +1023,11 @@ HLE_STDCALL(D3DDevice_SetVertexShader, 1) {
     uint32_t h = a[0];
     g_state.vs_handle = h;
     g_state.vs = nullptr;
+    // breakdown-recomp patch: the device's current shader object as the library keeps it (a handle is the object's
+    // address plus 1, an FVF selects the FVF shader object), for library code the host does not replace
+#if HAS_D3D_FvfShader
+    if (XDK_CDevice_VertexShader != xdk::kUnknown) SetDev(XDK_CDevice_VertexShader, h & 1 ? h - 1 : SYM(D3D_FvfShader));
+#endif
     if (h & 1) {
         auto it = g_vs.find(h);
         if (it != g_vs.end()) {
@@ -1249,6 +1344,17 @@ namespace d3d {
 namespace {
 uint32_t g_im_prim = 0, g_im_mask = 0;  // open primitive, slots it wrote
 float g_im_attr[64];                    // 16 slots of x y z w
+// breakdown-recomp patch: current attribute values start as diffuse white, others (0, 0, 0, 1), mirrored into the
+// constants a program reads them from (gpu::State::vsc 192 to 207)
+struct ImAttrInit {
+    ImAttrInit() {
+        for (int r = 0; r < 16; r++) {
+            float d[4] = {r == 3 ? 1.f : 0.f, r == 3 ? 1.f : 0.f, r == 3 ? 1.f : 0.f, 1.f};
+            std::memcpy(g_im_attr + r * 4, d, 16);
+            std::memcpy(g_state.vsc[size_t(192 + r)].data(), d, 16);
+        }
+    }
+} g_im_attr_init;
 std::vector<float> g_im_vertices;       // every slot per vertex
 
 // visibility tests: depth passing pixels are counted while enabled, a report gets the count since the clear,
@@ -1262,19 +1368,18 @@ void ApplyVisibilityMethod(uint32_t m, uint32_t v) {
 }
 
 // draws the open primitive: the slots it wrote are FLOAT4 inputs of the bound program, or of the fixed pipeline
-void EndPrimitive() {
+// draws vertices given as FLOAT4 per slot in mask (packed: count vertices of popcount(mask) float4s) with the bound
+// program, or the fixed pipeline
+void DrawSlots(uint32_t prim, uint32_t count, uint32_t mask, const float* packed) {
     struct Made {
         std::shared_ptr<gpu::VertexShader> from, vs;
     };
     // the render thread tells shaders apart by pointer: one object per program and slot set, the program kept alive
     static std::map<std::pair<gpu::VertexShader*, uint32_t>, Made> made;
-    static std::vector<float> packed;
-    uint32_t prim = g_im_prim, count = uint32_t(g_im_vertices.size() / 64), handle = g_state.vs_handle;
-    g_im_prim = 0;
-    if (!prim || !count) return;
-    if (!(handle & 1) && (handle & 0xE) == 4) LOG_FIRST(1, "d3d: pretransformed immediate mode vertices are not supported");
+    uint32_t handle = g_state.vs_handle;
+    if (!prim || !count || !mask) return;
     auto bound = g_state.vs, from = handle & 1 ? bound : nullptr;
-    Made& m = made[{from.get(), g_im_mask}];
+    Made& m = made[{from.get(), mask}];
     if (!m.vs) {
         m.from = from;
         m.vs = std::make_shared<gpu::VertexShader>();
@@ -1283,21 +1388,137 @@ void EndPrimitive() {
             m.vs->program_type = from->program_type;
         }
         for (uint32_t s = 0; s < 16; s++)
-            if (g_im_mask >> s & 1) {
+            if (mask >> s & 1) {
                 m.vs->inputs[s] = {0, m.vs->stream_stride[0], 0x42};
                 m.vs->stream_stride[0] += 16;
             }
     }
+    g_state.vs = m.vs;
+    g_state.vs_handle = handle | 1;
+    DrawUp(prim, count, packed, m.vs->stream_stride[0]);
+    g_state.vs = bound;
+    g_state.vs_handle = handle;
+}
+
+void EndPrimitive() {
+    static std::vector<float> packed;
+    uint32_t prim = g_im_prim, count = uint32_t(g_im_vertices.size() / 64), handle = g_state.vs_handle;
+    g_im_prim = 0;
+    if (!prim || !count) return;
+    if (!(handle & 1) && (handle & 0xE) == 4) LOG_FIRST(1, "d3d: pretransformed immediate mode vertices are not supported");
     packed.clear();
     for (uint32_t v = 0; v < count; v++)
         for (uint32_t s = 0; s < 16; s++)
             if (g_im_mask >> s & 1) packed.insert(packed.end(), &g_im_vertices[v * 64 + s * 4], &g_im_vertices[v * 64 + s * 4] + 4);
-    g_state.vs = m.vs;
-    g_state.vs_handle = handle | 1;
-    DrawUp(prim, count, packed.data(), m.vs->stream_stride[0]);
-    g_state.vs = bound;
-    g_state.vs_handle = handle;
+    DrawSlots(prim, count, g_im_mask, packed.data());
 }
+
+// breakdown-recomp patch: vertex arrays a title sets up with raw commands (precompiled push buffers): per slot an
+// offset (0x1720, physical) and a format (0x1760: type bits 0-3, size 4-7, stride 8-31). Draws read them when the
+// commands set formats since the walk began; otherwise the arrays are the ones the D3D state bound (the streams).
+struct RawArrays {
+    uint32_t offset[16] = {}, format[16] = {};
+    bool valid = false;
+    bool Method(uint32_t m, uint32_t v) {
+        if (m >= 0x1720 && m < 0x1760) {
+            offset[(m - 0x1720) / 4] = v;
+        } else if (m >= 0x1760 && m < 0x17A0) {
+            format[(m - 0x1760) / 4] = v;
+            valid = true;
+        } else {
+            return false;
+        }
+        return true;
+    }
+    static uint32_t Components(uint32_t f) { return (f >> 4) & 0xF; }
+    static uint32_t Bytes(uint32_t f) {
+        uint32_t n = Components(f);
+        switch (f & 0xF) {
+            case 0: case 4: return n;          // UB_D3D, UB_OGL
+            case 1: case 5: return n * 2;      // S1, S32K
+            case 2: return n * 4;              // F
+            case 6: return n * 4;              // CMP
+            default: return 0;
+        }
+    }
+    uint32_t Mask() const {
+        uint32_t m = 0;
+        for (int s = 0; s < 16; s++)
+            if (Components(format[s]) && Bytes(format[s])) m |= 1u << s;
+        return m;
+    }
+    // one attribute from guest bytes into x y z w
+    static void Decode(uint32_t f, const uint8_t* p, float* out) {
+        uint32_t n = Components(f);
+        float v[4] = {0, 0, 0, 1};
+        switch (f & 0xF) {
+            case 0:  // D3DCOLOR order: bytes b g r a
+                if (n >= 4) { v[0] = p[2] / 255.f; v[1] = p[1] / 255.f; v[2] = p[0] / 255.f; v[3] = p[3] / 255.f; }
+                else for (uint32_t i = 0; i < n; i++) v[i] = p[i] / 255.f;
+                break;
+            case 4:
+                for (uint32_t i = 0; i < n && i < 4; i++) v[i] = p[i] / 255.f;
+                break;
+            case 1:
+                for (uint32_t i = 0; i < n && i < 4; i++) { int16_t x; std::memcpy(&x, p + i * 2, 2); v[i] = std::max(x / 32767.f, -1.f); }
+                break;
+            case 5:
+                for (uint32_t i = 0; i < n && i < 4; i++) { int16_t x; std::memcpy(&x, p + i * 2, 2); v[i] = float(x); }
+                break;
+            case 2:
+                for (uint32_t i = 0; i < n && i < 4; i++) std::memcpy(&v[i], p + i * 4, 4);
+                break;
+            case 6: {  // packed 11 11 10, signed normalized
+                uint32_t w;
+                std::memcpy(&w, p, 4);
+                int32_t x = int32_t(w << 21) >> 21, y = int32_t(w << 10) >> 21, z = int32_t(w) >> 22;
+                v[0] = std::max(x / 1023.f, -1.f);
+                v[1] = std::max(y / 1023.f, -1.f);
+                v[2] = std::max(z / 511.f, -1.f);
+                break;
+            }
+        }
+        std::memcpy(out, v, 16);
+    }
+    // vertices by index from the arrays
+    void DrawIndexed(uint32_t prim, const uint32_t* idx, uint32_t n) const {
+        static std::vector<float> packed;
+        uint32_t mask = Mask();
+        packed.clear();
+        uint8_t* base[16] = {};
+        for (int s = 0; s < 16; s++)
+            if (mask >> s & 1) base[s] = static_cast<uint8_t*>(HostPtr(mem::VirtualFromPhysical(offset[s] & 0x7FFFFFFF)));
+        for (uint32_t i = 0; i < n; i++)
+            for (int s = 0; s < 16; s++)
+                if (mask >> s & 1) {
+                    float o[4];
+                    Decode(format[s], base[s] + size_t(idx[i]) * (format[s] >> 8), o);
+                    packed.insert(packed.end(), o, o + 4);
+                }
+        DrawSlots(prim, n, mask, packed.data());
+    }
+    // inline vertices in the array formats, enabled slots in order, no padding
+    bool DrawInline(uint32_t prim, const std::vector<uint32_t>& words) const {
+        static std::vector<float> packed;
+        uint32_t mask = Mask(), bytes = 0;
+        for (int s = 0; s < 16; s++)
+            if (mask >> s & 1) bytes += (Bytes(format[s]) + 3) & ~3u;
+        if (!bytes || (words.size() * 4) % bytes) return false;
+        uint32_t count = uint32_t(words.size() * 4 / bytes);
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(words.data());
+        packed.clear();
+        for (uint32_t i = 0; i < count; i++)
+            for (int s = 0; s < 16; s++)
+                if (mask >> s & 1) {
+                    float o[4];
+                    Decode(format[s], p, o);
+                    p += (Bytes(format[s]) + 3) & ~3u;
+                    packed.insert(packed.end(), o, o + 4);
+                }
+        DrawSlots(prim, count, mask, packed.data());
+        return true;
+    }
+};
 
 // a begin/end or vertex data method opens, feeds or draws the immediate primitive; false for any other method
 bool ApplyImmediate(uint32_t m, uint32_t v) {
@@ -1337,6 +1558,10 @@ bool ApplyImmediate(uint32_t m, uint32_t v) {
     } else {
         return false;
     }
+    {
+        size_t slot = size_t(a - g_im_attr) / 4;
+        std::memcpy(g_state.vsc[192 + slot].data(), a, 16);
+    }
     if (!g_im_prim) return true;
     g_im_mask |= 1u << (a - g_im_attr) / 4;
     if (a == g_im_attr && last) g_im_vertices.insert(g_im_vertices.end(), g_im_attr, g_im_attr + 64);
@@ -1370,8 +1595,14 @@ bool ApplyConstant(uint32_t m, uint32_t v) {
     return true;
 }
 
+// breakdown-recomp patch: the render state methods, alpha test enable to normalize enable. Breakdown's engine pushes
+// some material states itself (alpha test, blend, depth write) instead of calling SetRenderState; they were skipped
+// here, so the next draws kept whatever the library calls had set last.
+constexpr uint32_t kMRenderStateFirst = 0x300;
+constexpr uint32_t kMRenderStateEnd = 0x3A8;
+
 // reads the commands pushed since the last call: vertex data between a begin and an end is drawn, visibility tests
-// are run, constants are stored, the rest is skipped
+// are run, constants and render states are stored, the rest is skipped
 void Walk(uint32_t end) {
     if (!g_walk || end < g_walk || end > g_scratch_push + g_scratch_size) return;
     for (uint32_t p = g_walk; p + 4 <= end;) {
@@ -1383,7 +1614,10 @@ void Walk(uint32_t end) {
             uint32_t m = head & 0x40000000 ? method : method + i * 4;
             uint32_t v = R32(p);
             ApplyVisibilityMethod(m, v);
-            if (!ApplyConstant(m, v)) ApplyImmediate(m, v);
+            if (!ApplyConstant(m, v) && !ApplyImmediate(m, v) && m >= kMRenderStateFirst && m < kMRenderStateEnd) {
+                LOG_FIRST(8, "d3d: pushed render state %04X = %08X", m, v);
+                SetSimple(m, v);
+            }
         }
     }
     g_walk = end;
@@ -1400,9 +1634,20 @@ HLE_STDCALL(D3DDevice_DrawVerticesUP, 4) {
 
 // BeginPush(dwords) hands out room for raw hardware commands, EndPush(end) runs what the title wrote there:
 // a primitive between two begin/end writes with its vertices inline or as vertex data, other methods as simple states.
+// breakdown-recomp patch: while a push buffer records on this thread, the raw commands go into that buffer, in order
+// with the captured calls, and run when it is replayed; recorded state calls have not happened yet, so running the
+// commands now would draw with the wrong state (Breakdown's full screen passes at 0x192560 rely on a captured
+// SetVertexShader for their vertex format)
+bool PushIntoRecording(X86Context& ctx);
+bool g_push_recorded = false;
 HLE_STDCALL(D3DDevice_BeginPush, 1) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
+    if (PushIntoRecording(ctx)) {
+        g_push_recorded = true;
+        return Dev(kDevPush);
+    }
     g_push_begin = ScratchPush(a[0] * 4);
+    if (std::getenv("XBE_PUSHDUMP")) LOG_FIRST(16, "d3d: BeginPush %u dwords from %08X", a[0], R32(ctx.esp));
     return g_push_begin;
 }
 
@@ -1412,14 +1657,70 @@ static void DrawInline(uint32_t prim, const std::vector<uint32_t>& vertices) {
     uint32_t stride = VertexBytes();
     uint32_t bytes = uint32_t(vertices.size()) * 4;
     if (stride && bytes % stride == 0) DrawUp(prim, bytes / stride, vertices.data(), stride);
-    else LOG_FIRST(8, "d3d: EndPush primitive %u dropped, %u bytes of vertices of %u", prim, bytes, stride);
+    else if (std::getenv("XBE_PUSHDUMP")) {
+        static int n = 0;
+        g_dump_on = true;
+        if (n++ < 4)
+            for (size_t i = 0; i < vertices.size(); i++) LOGI("d3d: dropped vertex word %zu %08X", i, vertices[i]);
+    }
+    if (!(stride && bytes % stride == 0)) LOG_FIRST(8, "d3d: EndPush primitive %u dropped, %u bytes of vertices of %u (vertex shader %08X)", prim, bytes,
+                   stride, g_state.vs_handle);
 }
 
+
+// breakdown-recomp patch: indexed and ranged draws pushed as raw commands between a begin and an end read the vertex
+// arrays the D3D state set up (the streams of the bound shader), as on the hardware: ARRAY_ELEMENT16 (0x1800, two
+// indices per dword), ARRAY_ELEMENT32 (0x1808), DRAW_ARRAYS (0x1810, start | (count - 1) << 24). Breakdown pushes
+// index pairs for strips this way.
+struct ArrayDraws {
+    std::vector<uint32_t> indices;
+    std::vector<std::pair<uint32_t, uint32_t>> ranges;
+    bool Add(uint32_t m, uint32_t v) {
+        if (m >= 0x1800 && m < 0x1808) {
+            indices.push_back(v & 0xFFFF);
+            indices.push_back(v >> 16);
+        } else if (m >= 0x1808 && m < 0x1810) {
+            indices.push_back(v);
+        } else if (m >= 0x1810 && m < 0x1818) {
+            ranges.push_back({v & 0xFFFFFF, (v >> 24) + 1});
+        } else {
+            return false;
+        }
+        return true;
+    }
+    void Flush(uint32_t prim, const RawArrays& raw) {
+        if (prim && g_backend && raw.valid && (!indices.empty() || !ranges.empty())) {
+            static std::vector<uint32_t> idx;
+            idx.assign(indices.begin(), indices.end());
+            for (auto [start, count] : ranges)
+                for (uint32_t i = 0; i < count; i++) idx.push_back(start + i);
+            raw.DrawIndexed(prim, idx.data(), uint32_t(idx.size()));
+        } else if (prim && g_backend && (!indices.empty() || !ranges.empty())) {
+            SyncDeferred();
+            if (!indices.empty()) {
+                // the backend copies 16 bit indices
+                static std::vector<uint16_t> i16;
+                i16.clear();
+                for (uint32_t i : indices) {
+                    if (i > 0xFFFF) LOG_FIRST(4, "d3d: pushed index %u above 16 bits", i);
+                    i16.push_back(uint16_t(i));
+                }
+                g_backend->Draw(g_state, prim, 0, uint32_t(i16.size()), reinterpret_cast<const uint8_t*>(i16.data()));
+            }
+            for (auto [start, count] : ranges) g_backend->Draw(g_state, prim, start, count, nullptr);
+        }
+        indices.clear();
+        ranges.clear();
+    }
+};
 static void RunCommands(uint32_t begin, uint32_t end) {
     constexpr uint32_t kBeginEnd = 0x17FC, kInlineArray = 0x1818;
     // vertex array offsets and formats, then index elements and draw arrays up to the inline array
     constexpr uint32_t kArrayOffsets = 0x1720, kArrayFormatsEnd = 0x17A0, kArrayDraws = 0x1800;
     static std::vector<uint32_t> vertices;
+    static ArrayDraws arrays;
+    static RawArrays raw;
+    raw.valid = false;
     uint32_t prim = 0;
     for (uint32_t p = begin; begin && p + 4 <= end;) {
         // count in bits 18 to 28, bit 30 keeps the method for every value
@@ -1431,16 +1732,26 @@ static void RunCommands(uint32_t begin, uint32_t end) {
         }
         for (uint32_t i = 0; i < n; i++, p += 4) {
             uint32_t m = head & 0x40000000 ? method : method + i * 4, v = R32(p);
+            static int dumped = 0;
+            static const bool fmt_dump = std::getenv("XBE_FMTDUMP") != nullptr;
+            if (fmt_dump && m >= 0x1760 && m < 0x17A0) LOGI("d3d: format method %04X = %08X", m, v);
+            if (g_dump_on && dumped < 400) {
+                dumped++;
+                LOGI("d3d: pushed %04X = %08X", m, v);
+            }
             ApplyVisibilityMethod(m, v);
             if (m == kInlineArray) {
                 if (prim) vertices.push_back(v);
             } else if (m == kBeginEnd) {
-                if (!v && prim) DrawInline(prim, vertices);
+                if (!v && prim && !(raw.valid && raw.DrawInline(prim, vertices))) DrawInline(prim, vertices);
+                if (!v) arrays.Flush(prim, raw);
                 prim = v;
                 vertices.clear();
                 ApplyImmediate(m, v);
+            } else if (prim && arrays.Add(m, v)) {
+            } else if (raw.Method(m, v)) {
             } else if ((m >= kArrayOffsets && m < kArrayFormatsEnd) || (m >= kArrayDraws && m < kInlineArray)) {
-                LOG_FIRST(16, "d3d: pushed commands draw from vertex arrays (method %04X), which is not run", m);
+                LOG_FIRST(16, "d3d: pushed commands draw from vertex arrays (method %04X = %08X), which is not run", m, v);
             } else if (!ApplyConstant(m, v) && !ApplyImmediate(m, v) && m >> 2 < g_state.simple.size()) {
                 SetSimple(m, v);
             }
@@ -1450,23 +1761,298 @@ static void RunCommands(uint32_t begin, uint32_t end) {
 
 HLE_STDCALL(D3DDevice_EndPush, 1) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
+    if (g_push_recorded) {
+        g_push_recorded = false;
+        SetDev(kDevPush, a[0]);
+        return a[0];
+    }
     RunCommands(g_push_begin, a[0]);
     g_push_begin = 0;
     ScratchPush();
     return a[0];
 }
 
-// (push buffer, fixup): its commands run as EndPush runs a title's, after the ones pushed before it. D3DPushBuffer is
-// Common, Data, Lock, Size; the library runs Size less its last dword.
+// ---- breakdown-recomp patch: recorded push buffers -------------------------------------------------------------
+// D3DDevice_BeginPushBuffer points the device's push pointer into a title's D3DPushBuffer (Common, Data, Lock, Size,
+// AllocationSize), EndPushBuffer stores how much was written, RunPushBuffer runs it, and titles may patch the commands
+// (Breakdown chains its depth sorted lists with jumps written into each buffer's last dword). The host runs no
+// hardware commands for the D3D calls it implements, so while a buffer records those calls are captured: each one
+// writes a no-operation method into the buffer that carries its index, and RunPushBuffer walks the commands, follows
+// jumps and replays the captured calls where their markers sit. Raw commands the title or inlined library code
+// pushed meanwhile stay in the buffer and run as EndPush runs them.
+namespace {
+constexpr uint32_t kNopMethod = 0x0100, kMarkerMagic = 0xB0DA5EC0;
+struct Captured {
+    X86Func* fn = nullptr;
+    const char* name = nullptr;
+    X86Context regs{};
+    std::vector<uint32_t> stack;  // the return address slot, then the arguments
+    std::vector<uint32_t> copies; // guest allocations holding pointed to data, freed when the buffer records again
+};
+std::vector<Captured> g_captured;
+std::unordered_map<uint32_t, std::vector<uint32_t>> g_captured_of;  // push buffer -> its captured indices
+// breakdown-recomp patch: slots of buffers that recorded again, reused; without it the list grew by every call a
+// title recorded each frame (Breakdown re-records its push buffers every frame: about 18 MB a second)
+std::vector<uint32_t> g_captured_free;
+uint32_t g_recording = 0, g_rec_thread = 0;
+uint32_t g_saved_push = 0, g_saved_threshold = 0;
+bool g_replaying = false;
+}  // namespace
+bool PushIntoRecording(X86Context& ctx) { return g_recording && !g_replaying && ctx.thread_handle == g_rec_thread; }
+namespace {
+
+// API argument data a captured call points at: (argument location, bytes, count argument location or -1, count unit)
+struct PtrArg { int8_t loc; uint32_t bytes; int8_t count_loc; };
+// loc: 0..15 stack argument i, 100 ecx, 101 edx
+const std::unordered_map<std::string_view, std::vector<PtrArg>>& PointerArgs() {
+    static const std::unordered_map<std::string_view, std::vector<PtrArg>> k = {
+        {"hle_D3DDevice_SetTransform", {{1, 64, -1}}},
+        {"hle_D3DDevice_SetViewport", {{0, 24, -1}}},
+        {"hle_D3DDevice_SetMaterial", {{0, 68, -1}}},
+        {"hle_D3DDevice_SetLight", {{1, 104, -1}}},
+        {"hle_D3DDevice_SetScissors", {{2, 16, 0}}},
+        {"hle_D3DDevice_SetPixelShaderConstant", {{1, 16, 2}}},
+        {"hle_D3DDevice_SetVertexShaderConstant1", {{101, 16, -1}}},
+        {"hle_D3DDevice_SetVertexShaderConstant1Fast", {{101, 16, -1}}},
+        {"hle_D3DDevice_SetVertexShaderConstant4", {{101, 64, -1}}},
+        {"hle_D3DDevice_SetVertexShaderConstantNotInlineFast", {{101, 4, 0}}},  // count in dwords
+    };
+    return k;
+}
+bool Recordable(std::string_view n) {
+    if (n.rfind("hle_D3DDevice_", 0) != 0) return false;
+    n.remove_prefix(14);
+    static const std::unordered_set<std::string_view> no = {
+        "SetGammaRamp", "SetFlickerFilter", "SetSoftDisplayFilter", "SetRenderTarget", "SetRenderTargetFast",
+        "SetTile", "BeginPush", "EndPush", "MakeSpace"};
+    if (no.count(n)) return false;
+    return n.rfind("Set", 0) == 0 || n.rfind("Draw", 0) == 0 || n == "Begin" || n == "End" ||
+           n == "LoadVertexShader" || n == "LoadVertexShaderProgram" || n == "SelectVertexShader" ||
+           n == "SwitchTexture" || n == "LightEnable" || n == "RunPushBuffer" || n == "InsertCallback";
+}
+uint32_t ArgAt(const X86Context& c, int loc) {
+    if (loc == 100) return c.ecx;
+    if (loc == 101) return c.edx;
+    return R32(c.esp + 4 + 4 * uint32_t(loc));
+}
+void SetArgAt(X86Context& c, std::vector<uint32_t>& stack, int loc, uint32_t v) {
+    if (loc == 100) c.ecx = v;
+    else if (loc == 101) c.edx = v;
+    else stack[1 + loc] = v;
+}
+
+bool Record(X86Context& ctx, uint8_t*, const char* name, X86Func* self, int pops) {
+    if (g_replaying || !g_recording || ctx.thread_handle != g_rec_thread || !Recordable(name)) return false;
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    Captured c;
+    c.fn = self;
+    c.name = name;
+    c.regs = ctx;
+    // the HLE reads at most 16 arguments; a cdecl or register call pops none but may read the stack
+    int n = std::max(pops, 8);
+    for (int i = 0; i <= n; i++) c.stack.push_back(R32(ctx.esp + 4 * uint32_t(i)));
+    auto it = PointerArgs().find(name);
+    if (it != PointerArgs().end())
+        for (const PtrArg& p : it->second) {
+            uint32_t src = ArgAt(ctx, p.loc);
+            if (!src) continue;
+            uint32_t count = p.count_loc < 0 ? 1 : ArgAt(ctx, p.count_loc);
+            uint32_t bytes = p.bytes * std::max<uint32_t>(count, 1);
+            uint32_t dst = mem::AllocSystem(bytes);
+            std::memcpy(HostPtr(dst), HostPtr(src), bytes);
+            SetArgAt(c.regs, c.stack, p.loc, dst);
+            c.copies.push_back(dst);
+        }
+    if (std::string_view(name) == "hle_D3DDevice_DrawVerticesUP") {
+        // (type, vertex count, data, stride)
+        uint32_t bytes = ArgAt(ctx, 1) * ArgAt(ctx, 3), src = ArgAt(ctx, 2);
+        if (src && bytes) {
+            uint32_t dst = mem::AllocSystem(bytes);
+            std::memcpy(HostPtr(dst), HostPtr(src), bytes);
+            SetArgAt(c.regs, c.stack, 2, dst);
+            c.copies.push_back(dst);
+        }
+    }
+    uint32_t index;
+    if (!g_captured_free.empty()) {
+        index = g_captured_free.back();
+        g_captured_free.pop_back();
+        g_captured[index] = std::move(c);
+    } else {
+        index = uint32_t(g_captured.size());
+        g_captured.push_back(std::move(c));
+    }
+    g_captured_of[g_recording].push_back(index);
+    if (static size_t logged = 0; g_captured.size() >= logged * 2 && g_captured.size() >= 4096) {
+        logged = g_captured.size();
+        LOGI("d3d: %zu captured calls kept (%zu free) for %zu push buffers", g_captured.size(), g_captured_free.size(),
+             g_captured_of.size());
+    }
+    // the marker: a two dword no-operation method, magic then index
+    uint32_t p = Dev(kDevPush);
+    W32(p, (2u << 18) | kNopMethod);
+    W32(p + 4, kMarkerMagic);
+    W32(p + 8, index);
+    SetDev(kDevPush, p + 12);
+    LOG_FIRST(32, "d3d: push buffer %08X captures %s", g_recording, name + 4);
+    ::kernel::Return(ctx, 0, pops);
+    return true;
+}
+
+void Replay(X86Context& ctx, uint32_t index) {
+    if (index >= g_captured.size()) return;
+    Captured& c = g_captured[index];
+    X86Context r = ctx;
+    r.eax = c.regs.eax; r.ecx = c.regs.ecx; r.edx = c.regs.edx; r.ebx = c.regs.ebx;
+    r.esi = c.regs.esi; r.edi = c.regs.edi; r.ebp = c.regs.ebp;
+    // the arguments go below the current guest stack, as a call would put them
+    uint32_t sp = (ctx.esp - 0x200 - 4 * uint32_t(c.stack.size())) & ~15u;
+    for (size_t i = 0; i < c.stack.size(); i++) W32(sp + 4 * uint32_t(i), c.stack[i]);
+    r.esp = sp;
+    c.fn(r, ::mem::Base());
+    ctx.eax = r.eax;
+}
+
+// Runs commands from begin to stop, following jumps. Markers replay captured calls, other methods run as EndPush runs
+// them. Returns false when the stream stops being commands.
+void Execute(X86Context& ctx, uint32_t begin, uint32_t stop) {
+    constexpr uint32_t kBeginEnd = 0x17FC, kInlineArray = 0x1818;
+    constexpr uint32_t kArrayOffsets = 0x1720, kArrayFormatsEnd = 0x17A0, kArrayDraws = 0x1800;
+    static std::vector<uint32_t> vertices;
+    static ArrayDraws arrays;
+    static RawArrays raw;
+    raw.valid = false;
+    uint32_t prim = 0;
+    uint32_t p = begin, steps = 0;
+    while (p && p != stop) {
+        if (++steps > (1u << 22)) {
+            LOG_FIRST(8, "d3d: push buffer walk from %08X did not reach %08X", begin, stop);
+            return;
+        }
+        uint32_t head = R32(p);
+        if ((head & 3) == 1 || (head & 0xE0000003) == 0x20000000) {  // jump, old jump: to a physical address
+            uint32_t target = (head & 3) == 1 ? head & 0xFFFFFFFC : head & 0x1FFFFFFC;
+            p = mem::VirtualFromPhysical(target);
+            continue;
+        }
+        if ((head & 3) == 2 || head == 0x00020000) {
+            LOG_FIRST(8, "d3d: push buffer call or return %08X at %08X is not followed", head, p);
+            return;
+        }
+        uint32_t method = head & 0x1FFC, n = (head >> 18) & 0x7FF;
+        if (head & 0xA0030003) {
+            LOG_FIRST(8, "d3d: push buffer commands stop at %08X (%08X)", p, head);
+            return;
+        }
+        p += 4;
+        if (method == kNopMethod && n == 2 && R32(p) == kMarkerMagic) {
+            Replay(ctx, R32(p + 4));
+            p += 8;
+            continue;
+        }
+        for (uint32_t i = 0; i < n; i++, p += 4) {
+            uint32_t m = head & 0x40000000 ? method : method + i * 4, v = R32(p);
+            ApplyVisibilityMethod(m, v);
+            if (m == kNopMethod) continue;
+            if (m == kInlineArray) {
+                if (prim) vertices.push_back(v);
+            } else if (m == kBeginEnd) {
+                if (!v && prim && !(raw.valid && raw.DrawInline(prim, vertices))) DrawInline(prim, vertices);
+                if (!v) arrays.Flush(prim, raw);
+                prim = v;
+                vertices.clear();
+                ApplyImmediate(m, v);
+            } else if (prim && arrays.Add(m, v)) {
+            } else if (raw.Method(m, v)) {
+            } else if ((m >= kArrayOffsets && m < kArrayFormatsEnd) || (m >= kArrayDraws && m < kInlineArray)) {
+                LOG_FIRST(16, "d3d: pushed commands draw from vertex arrays (method %04X = %08X), which is not run", m, v);
+            } else if (!ApplyConstant(m, v) && !ApplyImmediate(m, v) && m >> 2 < g_state.simple.size()) {
+                SetSimple(m, v);
+            }
+        }
+    }
+}
+}  // namespace
+
+// breakdown-recomp patch: (type, callback, context). The library pushes a method the GPU raises an interrupt for once
+// the commands before it are done, and the interrupt calls callback(context). The host draws the commands as they
+// come, so the callback runs here; in a recording push buffer it is captured and runs when the buffer runs.
+// Breakdown counts frames in flight down in its callback 0x18E870 and waits for the count in its main loop.
+HLE_STDCALL(D3DDevice_InsertCallback, 3) {
+    Walk(Dev(kDevPush));
+    LOG_FIRST(4, "d3d: InsertCallback type %u callback %08X context %08X", a[0], a[1], a[2]);
+    if (a[1]) ::kernel::CallGuest(ctx, a[1], {a[2]});
+    return 0;
+}
+
+// (push buffer): later pushes and the D3D calls the host implements go into it
+HLE_STDCALL(D3DDevice_BeginPushBuffer, 1) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    uint32_t pb = a[0], data = R32(pb + 4), alloc = R32(pb + 16);
+    if (g_recording) LOG_FIRST(4, "d3d: BeginPushBuffer %08X while %08X records", pb, g_recording);
+    Walk(Dev(kDevPush));
+    // the buffer records again: what it captured before is dropped
+    if (auto it = g_captured_of.find(pb); it != g_captured_of.end()) {
+        for (uint32_t i : it->second) {
+            for (uint32_t c : g_captured[i].copies) mem::FreeSystem(c);
+            g_captured[i] = Captured{};
+            g_captured_free.push_back(i);
+        }
+        it->second.clear();
+    }
+    g_saved_push = Dev(kDevPush);
+    g_saved_threshold = Dev(kDevThreshold);
+    W32(pb, R32(pb) + 0x80000);  // the device holds it, as the library's does
+    SetDev(kDevPush, data);
+    SetDev(kDevThreshold, data + alloc - 0x204);
+    g_recording = pb;
+    g_rec_thread = ctx.thread_handle;
+    ::hle::g_recorder = Record;
+    LOG_FIRST(8, "d3d: BeginPushBuffer %08X data %08X allocation %u", pb, data, alloc);
+    return 0;
+}
+
+// the size counts the commands and one dword after them, which RunPushBuffer leaves for its jump back
+HLE_STDCALL(D3DDevice_EndPushBuffer, 0) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    uint32_t pb = g_recording;
+    if (!pb) return 0;
+    uint32_t data = R32(pb + 4), used = Dev(kDevPush) - data;
+    W32(pb + 12, used + 4);
+    W32(pb, R32(pb) - 0x80000);
+    g_recording = 0;
+    ::hle::g_recorder = nullptr;
+    SetDev(kDevPush, g_saved_push);
+    SetDev(kDevThreshold, g_saved_threshold);
+    g_walk = g_saved_push;
+    LOG_FIRST(8, "d3d: EndPushBuffer %08X, %u bytes, %zu calls captured", pb, used + 4,
+              g_captured_of.count(pb) ? g_captured_of[pb].size() : size_t(0));
+    if (used + 4 > R32(pb + 16)) return 0x88760829;  // D3DERR_BUFFERTOOSMALL, as the library's
+    return 0;
+}
+
+// (push buffer, offset out): how far the recording has got
+HLE_STDCALL(D3DDevice_GetPushBufferOffset, 1) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    W32(a[0], g_recording ? Dev(kDevPush) - R32(g_recording + 4) : 0);
+    return 0;
+}
+
+// (push buffer, fixup): the commands from Data to the size's last dword, with the jumps a title wrote into them
 HLE_STDCALL(D3DDevice_RunPushBuffer, 2) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     uint32_t data = R32(a[0] + 4), size = R32(a[0] + 12);
     LOG_FIRST(8, "d3d: RunPushBuffer %08X, %u bytes, first command %08X", data, size, size ? R32(data) : 0);
     if (a[1]) LOG_FIRST(1, "d3d: RunPushBuffer fixups are not applied");
     Walk(Dev(kDevPush));
-    if (size >= 4) RunCommands(data, data + size - 4);
+    if (size < 4) return 0;
+    bool was = g_replaying;
+    g_replaying = true;
+    Execute(ctx, data, data + size - 4);
+    g_replaying = was;
     return 0;
 }
+// ---- end of breakdown-recomp patch ---------------------------------------------------------------------------------
 
 // frame buffer compression tiles are the console's memory controller's business
 HLE_STDCALL(D3DDevice_SetTile, 2) { return 0; }
@@ -1521,3 +2107,16 @@ HLE_STDCALL(D3DDevice_End, 0) {
     SetDev(XDK_CDevice_Flags, Dev(XDK_CDevice_Flags) & ~0x1800u);
     return 0;
 }
+
+// breakdown-recomp patch: for title hooks that replace a spin on a count the title's vertical blank callback keeps
+namespace d3d {
+uint64_t BlanksDone() {
+    std::lock_guard<std::mutex> blank(g_blank_mutex);
+    return g_blanks_done;
+}
+bool WaitBlankDone(uint64_t seen, uint32_t timeout_ms) {
+    if (!g_blank_thread) return false;
+    std::unique_lock<std::mutex> blank(g_blank_mutex);
+    return g_blank_cv.wait_for(blank, std::chrono::milliseconds(timeout_ms), [&] { return g_blanks_done != seen; });
+}
+}  // namespace d3d
