@@ -60,6 +60,13 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
     `runs\mouse_compass*.png`).
 13. **Settings**: the F1 menu works (opened by the script); display changes now ask to be kept and revert after 15 s.
 14. **Long run**: see "Stress run" below.
+15. **More of the game**: local multiplayer (Grinder, Colosseum, ATLAS) loads a second map and plays against
+    attacking 'Mechs. The campaign's first unlocked missions (Planet Fall area) load; later campaign maps were not
+    reached (the profile save is signed, so it cannot simply be edited to unlock them).
+16. **Packaging**: `release.bat` builds `outuildelease\package\MechAssault` (exe, README, licences,
+    resources with the compiler, 169 MB of it). Its setup window found the game beside it and validated it
+    (`runs\setup1.png`). Play (copying 3.4 GB into resources\game and building the code) was not run, so as not to
+    put a second copy of the game into OneDrive or a shortcut on the desktop.
 
 ## How to build and test
 

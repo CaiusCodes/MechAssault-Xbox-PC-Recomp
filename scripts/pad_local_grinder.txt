@@ -1,0 +1,15 @@
+# main menu -> Multiplayer -> Local Xbox -> profile -> Grinder on Colosseum (ATLAS) -> play
+14 start 200
+18 b 200
+20 down 150
+21.5 a 200
+25 a 200
+28 a 200
+31 a 200
+34 a 200
+37 a 200
+40 a 200
+43 a 200
+70 ly 3000 32767
+74 rt 1500
+78 dump
