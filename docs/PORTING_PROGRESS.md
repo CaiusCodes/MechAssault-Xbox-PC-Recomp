@@ -19,6 +19,11 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
 | In-engine cutscenes with subtitles | yes | `runs\wide1\004` |
 | 60 fps with correct game speed | yes | GRAPHICS_AND_PERFORMANCE.md |
 | Audio | output running; levels in the log; not heard yet | see the stress run below |
+| Long play without a crash | 6.5 min of random play | "Stress run" below |
+| Local multiplayer (a second map: Colosseum) | yes | `runs\mp2_sheet.png` |
+| Video settings changed live mid-mission | yes | `scripts\pad_live_settings.txt`, `runs\live1` |
+| Packaged release: setup -> import -> player-side build -> play | yes (unattended test mode) | item 16 below |
+| Keyboard and mouse | mouse aim verified with injected counts; keys not pressed by a person | item 12 below |
 | Playable start to end by a person | not yet tried | |
 
 ## Session log
@@ -94,7 +99,12 @@ powershell -ExecutionPolicy Bypass -File scripts\run.ps1 -Seconds 95 -Every 3 -T
 - Log: `out\build\release\logs\mechassault.log` (`XBE_PERF=1`, set by run.ps1, adds per-second renderer and
   10-second frame timing and audio level lines).
 - Scripts: `scripts\pad_title.txt` (title), `pad_mission1.txt`, `pad_mission1_play.txt`, `pad_speed.txt` (same walk
-  for 30/60 fps comparisons), `pad_stress.txt` (5 minutes of random play).
+  for 30/60 fps comparisons), `pad_stress.txt` (5 minutes of random play), `pad_live_settings.txt` (settings changed
+  mid-mission with `set` steps), `pad_local_grinder.txt` (local multiplayer). `scripts\bench_scales.ps1` runs the
+  render-scale benchmark (`-Uncapped` for V-Sync off; `$env:XBE_GPU="low"` for the integrated GPU).
+- Packaged first run unattended: `release.bat`, copy the package somewhere outside OneDrive with the game folder (or
+  a junction to it) beside it, set `XBE_SETUP_TEST=1` and start it.
+- Mouse: `XBE_MOUSE_TEST="dx,dy,from,to"` adds mouse counts per poll between those seconds.
 - `scripts\run.ps1` stops only the process it started.
 - The dev settings file is `out\build\release\settings.toml` (windowed 1280x960 for tests).
 
@@ -107,13 +117,11 @@ Diagnostics: `XBE_IOLOG=1` (every file transfer), `XBE_INPUTLOG=1` (pad states t
 jump jets and weapon changes (seed 7). Run `stress1` (390 s):
 
 - no crash, hang or error line; the mech crossed the valley, the river below the waterfall, climbed on jump jets and
-  fired lasers, the autocannon and missiles (`runs\stress1
-`, `018`, `020`).
+  fired lasers, the autocannon and missiles (`runs\stress1\012`, `018`, `020`).
 - 60.00 fps in every 10 s window of play; 1% low 55-58 fps; p99 17.1-17.5 ms; worst frame 17.3-21 ms, with one
   37 ms frame in 6 minutes; 0 stalls in play.
 - renderer 0.6-0.8 ms host time per frame, 170-350 draws, 20-32k vertices.
 - audio output alive the whole time: peak 0.3-1.0, RMS 0.06-0.25 per 10 s (the peaks reaching 1.0 mean the mix
   clips at times; to be judged by ear).
-- one thing to compare with the console: in `runs\stress1
-` dark jagged silhouettes cover the right edge
+- one thing to compare with the console: in `runs\stress1\012` dark jagged silhouettes cover the right edge
   (cliff and foliage near the camera in fog); may be correct.
