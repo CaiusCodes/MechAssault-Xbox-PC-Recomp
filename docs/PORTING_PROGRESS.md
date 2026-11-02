@@ -130,3 +130,11 @@ Second run, `scripts\pad_stress30.txt` (seed 11, with an occasional A for prompt
 hang; all 187 ten-second windows at 60.00 fps; 1% low 56.7 fps on average; stalls only in the first 50 s (boot,
 cache, level load: worst frame 148 ms) and one 57 ms frame at 1,101 s; process memory 379 MB at 1 minute, 400 MB
 from 20 minutes to the end (no growth); 0.13-0.22 CPU cores (`runs\stress30\cpu.txt`).
+
+## Audio recording
+
+`XBE_AUDIO_WAV=<file>` (with `XBE_AUDIO_WAV_FROM`, `XBE_AUDIO_WAV_SECONDS`) records what the game plays. A 95 s run
+of `pad_mission1_play.txt` (`runs\audio\session.wav`, clips `1_logos_title_menus.wav` and `2_mission_gameplay.wav`):
+sound in every 5 s window (RMS 0.02-0.21 of full scale), stereo music in the logos and title (left/right correlation
+0.5-0.9), near-mono briefing and weapon sound, clipping only while firing (0.1% of samples at 75-80 s). Whether it
+sounds right still needs a listener.
