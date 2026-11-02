@@ -8,10 +8,13 @@
 #include <windows.h>
 #include <xaudio2.h>
 
+#include <chrono>
+#include <cmath>
 #include <thread>
 #include <vector>
 
 #include "audio/audio.h"
+#include "core/diag.h"
 #include "core/log.h"
 
 namespace audio {
@@ -58,6 +61,23 @@ void StartOutput(std::function<void(float*, uint32_t)> render) {
             }
             float* b = &bufs[(n % kSlots) * kFrames * 2];
             render(b, kFrames);
+            // mechassault-recomp patch: with XBE_PERF, the output's peak and RMS every 10 s (is anything playing)
+            if (diag::Perf()) {
+                static double sum = 0;
+                static float peak = 0;
+                static uint64_t count = 0;
+                static auto next = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                for (uint32_t i = 0; i < kFrames * 2; i++) {
+                    sum += double(b[i]) * b[i];
+                    peak = std::max(peak, std::fabs(b[i]));
+                }
+                count += kFrames * 2;
+                if (std::chrono::steady_clock::now() >= next) {
+                    LOGR("audio: peak %.3f, rms %.4f over 10 s", peak, std::sqrt(sum / double(count ? count : 1)));
+                    sum = 0, peak = 0, count = 0;
+                    next += std::chrono::seconds(10);
+                }
+            }
             XAUDIO2_BUFFER xb{};
             xb.AudioBytes = kFrames * 8;
             xb.pAudioData = reinterpret_cast<const BYTE*>(b);

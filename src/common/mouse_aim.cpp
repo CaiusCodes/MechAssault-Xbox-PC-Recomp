@@ -37,10 +37,12 @@ namespace {
 
 std::atomic<int32_t> g_dx{0}, g_dy{0};  // raw counts the game has not taken yet
 
-// The stick model: full deflection turns the torso kFullRate degrees a second, nothing moves inside kDeadZone (a
-// share of full deflection). Estimates from the game's feel, not measured in memory yet.
+// The stick model: full deflection turns the torso kFullRate degrees a second. The game's pad code (0x276C0) scales
+// each axis by 1/32768, zeroes it inside a dead zone of 0.30 (0x33D90C) and stretches the rest back to 0..1
+// ((|v| - 0.3) / 0.7), so a deflection just past 0.30 plus the share wanted gives that share of the top rate.
+// kFullRate is an estimate (KNOWN_ISSUES.md).
 constexpr float kFullRate = 120.0f;
-constexpr float kDeadZone = 0.24f;
+constexpr float kDeadZone = 0.302f;
 constexpr float kMaxPending = 60.0f;  // degrees the mouse may run ahead of the torso
 
 // the size of the deflection that turns the pending degrees this poll (at most full), taking them off pending

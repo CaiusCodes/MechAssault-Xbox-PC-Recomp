@@ -137,6 +137,60 @@ void Changed(bool display = false) {
     if (display) ApplyDisplay();
 }
 
+// mechassault-recomp patch: a new display mode, resolution or refresh rate asks to be kept, and goes back to the
+// previous one after 15 seconds without an answer (a mode the display cannot show leaves nothing to click)
+struct Revert {
+    bool active = false;
+    DisplayMode mode{};
+    uint32_t width = 0, height = 0, refresh_hz = 0;
+    std::chrono::steady_clock::time_point deadline;
+};
+Revert g_revert;
+constexpr int kRevertSeconds = 15;
+
+void DisplayChanged(const Settings& before) {
+    if (!g_revert.active) {
+        g_revert.active = true;
+        g_revert.mode = before.display_mode;
+        g_revert.width = before.width;
+        g_revert.height = before.height;
+        g_revert.refresh_hz = before.refresh_hz;
+    }
+    g_revert.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kRevertSeconds);
+    Changed(true);
+}
+
+void RevertPrompt() {
+    if (!g_revert.active) return;
+    Settings& s = Get();
+    auto left = std::chrono::duration_cast<std::chrono::seconds>(g_revert.deadline - std::chrono::steady_clock::now());
+    bool revert = left.count() < 0, keep = false;
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.2f), ImGuiCond_Always,
+                            ImVec2(0.5f, 0.5f));
+    if (ImGui::Begin("Keep these display settings?", nullptr,
+                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+                         ImGuiWindowFlags_NoMove)) {
+        ImGui::Text("Going back to the previous ones in %lld s.", (long long)std::max<int64_t>(left.count() + 1, 0));
+        if (ImGui::Button("Keep")) keep = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Revert now")) revert = true;
+    }
+    ImGui::End();
+    if (keep) {
+        g_revert.active = false;
+        LOGR("display: new settings kept");
+    } else if (revert) {
+        s.display_mode = g_revert.mode;
+        s.width = g_revert.width;
+        s.height = g_revert.height;
+        s.refresh_hz = g_revert.refresh_hz;
+        g_revert.active = false;
+        LOGR("display: reverted to the previous settings");
+        Changed(true);
+    }
+}
+
 // a combo over (label, value) pairs; true when the value changed
 template <typename T>
 bool Choice(const char* label, T& value, const std::vector<std::pair<std::string, T>>& items) {
@@ -274,6 +328,7 @@ void FeedControllers(const input::MenuPad& m) {
 
 void Menu() {
     Settings& s = Get();
+    const Settings before = s;  // what a display change can go back to
     ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Appearing,
                             ImVec2(0.5f, 0.5f));
@@ -294,7 +349,7 @@ void Menu() {
                                     {{"Fullscreen", DisplayMode::Fullscreen},
                                      {"Borderless", DisplayMode::Borderless},
                                      {"Windowed", DisplayMode::Windowed}}))
-                Changed(true);
+                DisplayChanged(before);
             static std::vector<Resolution> modes;
             if (ImGui::IsWindowAppearing() || modes.empty()) modes = Resolutions();
             std::vector<std::pair<std::string, Resolution>> res{{"Desktop", {0, 0}}};
@@ -303,7 +358,7 @@ void Menu() {
             if (Choice<Resolution>(s.display_mode == DisplayMode::Windowed ? "Window size" : "Resolution", cur, res)) {
                 s.width = cur.w;
                 s.height = cur.h;
-                Changed(true);
+                DisplayChanged(before);
             }
             // breakdown-recomp patch: Breakdown draws 4:3 whatever the console reports: Widescreen widens its camera
             // (src/game/widescreen.cpp), the stretched shapes stretch the 4:3 picture
@@ -333,7 +388,7 @@ void Menu() {
                 std::vector<std::pair<std::string, uint32_t>> hz{{"Desktop's", 0}};
                 for (uint32_t r : rates)
                     hz.push_back({std::to_string(r) + " Hz" + (EvenFor60(r) ? "  (even 60 fps)" : ""), r});
-                if (Choice<uint32_t>("Refresh rate", s.refresh_hz, hz)) Changed(true);
+                if (Choice<uint32_t>("Refresh rate", s.refresh_hz, hz)) DisplayChanged(before);
             }
             if (uint32_t now_hz = RefreshHz(); now_hz > 1) {
                 ImGui::PushTextWrapPos(0);
@@ -445,6 +500,7 @@ void DrawOverlay() {
     if (uint32_t o = Get().perf_overlay) FpsCounter(o >= 2);
     if (g_menu) Menu();
     else g_menu_drawn = false;
+    RevertPrompt();  // mechassault-recomp patch: also with the menu closed
 }
 
 }  // namespace app

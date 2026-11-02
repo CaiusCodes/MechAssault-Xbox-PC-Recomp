@@ -9,6 +9,7 @@
 // views of another shape (the 'Mech preview in the menus) keep theirs. The renderer squeezes flat draws (the HUD,
 // menus, text) back to 4:3 in the middle (gpu/widescreen.h).
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 
@@ -18,6 +19,12 @@
 #include "kernel/kernel.h"
 
 void MechAssaultWidenProjection(X86Context& ctx, uint8_t*) {
+    // how often cameras are rebuilt (a setting change applies from the next one): logged once, after 2000 builds
+    static int builds = 0;
+    static auto first = std::chrono::steady_clock::now();
+    if (++builds == 2000)
+        LOGR("mechassault: 2000 camera builds in %.1f s",
+             std::chrono::duration<double>(std::chrono::steady_clock::now() - first).count());
     float k = app::WideView();
     if (k == 1.0f) return;
     uint32_t m = ctx.esp + 0x40;  // row major 4x4
