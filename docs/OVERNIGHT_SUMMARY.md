@@ -31,7 +31,10 @@ into a 96 MB hard-disk cache. Full analysis: `docs/MECHASSAULT_TECHNICAL_ANALYSI
 Working. 23,160 functions recompiled; `scripts\b.bat cmake --build out\build\release -j 6` builds
 `out\build\release\MechAssault.exe` + `MechAssault.dll` in ~52 s clean. Symbols: `config/game.toml`
 (xbe_symbols, one hand fix) + `config/mechassault.toml` (14 hand-checked symbols, the widescreen hook).
-`release.bat` makes `out\build\release\package\MechAssault` (no game code; the player's PC builds it).
+`release.bat` makes `out\build\release\package\MechAssault` (no game code; the player's PC builds it). A fresh
+`git clone` of the repository, with the game junctioned in as `assets`, configured and built in 121 s with nothing
+else needed (the dependencies came from the existing build's sources: in that deep temp path git could not fetch
+Zydis's submodule, a Windows path-length limit, not a repository problem).
 
 ## 4. Furthest verified milestone
 
