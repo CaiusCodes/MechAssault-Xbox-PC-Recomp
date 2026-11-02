@@ -1,0 +1,15 @@
+# title -> profile -> mission select: up one (from the newest unlocked) -> briefing -> 'Mech select -> launch, then walk and fire
+14 start 200
+18 a 200
+21 up 150
+22.5 a 200
+30 a 200
+34 start 200
+38 a 200
+45 a 200
+52 a 200
+58 a 200
+72 ly 3000 32767
+76 rt 1500
+80 rx 800 32767
+85 dump

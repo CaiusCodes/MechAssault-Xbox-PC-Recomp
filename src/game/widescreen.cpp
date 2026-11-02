@@ -14,17 +14,24 @@
 #include <cstdint>
 
 #include "app/app.h"
+#include "core/diag.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "kernel/kernel.h"
 
 void MechAssaultWidenProjection(X86Context& ctx, uint8_t*) {
-    // how often cameras are rebuilt (a setting change applies from the next one): logged once, after 2000 builds
+    // how often cameras are rebuilt (a setting change applies from the next one): with XBE_PERF, every 10 s
     static int builds = 0;
-    static auto first = std::chrono::steady_clock::now();
-    if (++builds == 2000)
-        LOGR("mechassault: 2000 camera builds in %.1f s",
-             std::chrono::duration<double>(std::chrono::steady_clock::now() - first).count());
+    static auto since = std::chrono::steady_clock::now();
+    builds++;
+    if (diag::Perf()) {
+        double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - since).count();
+        if (s >= 10) {
+            LOGR("mechassault: %.1f camera builds a second", builds / s);
+            builds = 0;
+            since = std::chrono::steady_clock::now();
+        }
+    }
     float k = app::WideView();
     if (k == 1.0f) return;
     uint32_t m = ctx.esp + 0x40;  // row major 4x4

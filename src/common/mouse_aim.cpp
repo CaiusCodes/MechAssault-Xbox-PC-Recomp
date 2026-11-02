@@ -40,8 +40,10 @@ std::atomic<int32_t> g_dx{0}, g_dy{0};  // raw counts the game has not taken yet
 // The stick model: full deflection turns the torso kFullRate degrees a second. The game's pad code (0x276C0) scales
 // each axis by 1/32768, zeroes it inside a dead zone of 0.30 (0x33D90C) and stretches the rest back to 0..1
 // ((|v| - 0.3) / 0.7), so a deflection just past 0.30 plus the share wanted gives that share of the top rate.
-// kFullRate is an estimate (KNOWN_ISSUES.md).
-constexpr float kFullRate = 120.0f;
+// kFullRate: measured from the HUD compass after holding the right stick fully right from rest (Mission 1, 60 fps):
+// about 45 degrees after 0.5 s and 120-125 after 1 s, so about 150 degrees a second once turning, with a short
+// ramp-up from rest the mouse's carry-over absorbs.
+constexpr float kFullRate = 150.0f;
 constexpr float kDeadZone = 0.302f;
 constexpr float kMaxPending = 60.0f;  // degrees the mouse may run ahead of the torso
 

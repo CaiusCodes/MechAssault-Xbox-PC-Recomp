@@ -103,17 +103,19 @@ low 57.3 (same as bilinear); edges visibly crisper than bilinear with no halos o
 
 | Mode | What it does | State |
 |---|---|---|
-| Widescreen (default) | The game's cameras are widened to the display's shape (Hor+); the HUD, text and menus are squeezed back into a centred 4:3 area by the shared renderer rule; movies keep 4:3 between bars | 16:9 verified (gameplay, cutscene, menus) |
+| Widescreen (default) | The game's cameras are widened to the display's shape (Hor+); the HUD, text and menus are squeezed back into a centred 4:3 area by the shared renderer rule; movies keep 4:3 between bars | 16:9 (gameplay, cutscene, menus) and 21:9 (gameplay) verified |
 | 4:3 | the console picture, pillarboxed | yes |
 | 16:9 stretched / fill | the 4:3 picture stretched | yes (also tells the title it is on a widescreen TV; MechAssault ignores that) |
 
 How (src/game/widescreen.cpp): every camera's projection is built in one function; a `[[hook]]` between
 `D3DXMatrixPerspectiveFovLH` and `SetTransform` divides the clip x column by the display's width over 4:3, only for
 4:3 perspective cameras. The same widened matrix feeds the game's culling, so nothing at the new edges is culled.
-The camera is rebuilt every frame (see the log line "camera builds"), so a change applies on the next frame.
+Cameras are rebuilt 120 times a second in play (two cameras a frame at 60 fps; `XBE_PERF` logs "camera builds a
+second"), so a change applies on the next frame.
 
-21:9 and 32:9: the same code (WideView is clamped to 32:9); not looked at yet. HUD positions are the game's 4:3
-ones, centred.
+21:9 verified (window 1680x720: view 1.75 times 4:3, camera x scale 1.6845 -> 0.9626; `runs\wide219 9`): wider
+view, nothing stretched, HUD at its 4:3 place in the middle. 32:9 uses the same code (WideView is clamped to 32:9),
+not looked at. Render scale Auto renders as many pixels as the picture is wide, so ultrawide stays sharp.
 
 ## Display settings and live application
 
@@ -122,7 +124,7 @@ ones, centred.
 | Display mode (fullscreen / borderless / windowed), resolution, refresh rate | immediately (window/swap chain recreated); **now with a 15 s keep-or-revert prompt** |
 | V-Sync, frame-rate limit | immediately |
 | Render scale | immediately (targets recreated, session kept) |
-| Anti-aliasing, anisotropic filtering | immediately |
+| Anti-aliasing, anisotropic filtering, upscaling (FSR 1) and its sharpening | immediately |
 | Aspect ratio | immediately (next camera build and frame) |
 | Performance overlay, frame-timing log | immediately |
 | Mouse aim, sensitivity, invert, key bindings | immediately |
