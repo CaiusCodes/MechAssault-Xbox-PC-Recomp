@@ -19,6 +19,9 @@ const gameimport::Profile& Profile() {
                               "15b", "17", "18", "19", "20a", "20B"})
             p.required.push_back(std::string("Mission") + m + ".mgf");
         p.required_dirs = {"Audio", "media", "Movie/NTSC", "Movie/PAL"};
+        // never needed here: the Xbox Demos disc launcher (its own xbe; the runtime only starts recompiled images),
+        // and the Xbox Live dashboard update and downloader images; about 440 MB less to copy
+        p.skip = {"XDemos/", "dashupdate.xbe", "update.xbe", "downloader.xbe"};
         return p;
     }();
     return profile;

@@ -18,7 +18,8 @@ $env:XBE_PERF = "1"
 if (-not $env:XBE_CAPTURE_DIR) { $env:XBE_CAPTURE_DIR = Join-Path $root "captures" }
 $pending = @(); foreach ($t in $F3At) { $pending += ,@($t, 0x72) }
 if ($Keys) { foreach ($k in $Keys.Split(",")) { $a = $k.Split(":"); $pending += ,@([int]$a[0], [int][System.Windows.Forms.Keys]::($a[1])) } }
-$p = Start-Process -FilePath (Join-Path $root $Exe) -WorkingDirectory (Split-Path (Join-Path $root $Exe)) -PassThru
+$exePath = if ([IO.Path]::IsPathRooted($Exe)) { $Exe } else { Join-Path $root $Exe }
+$p = Start-Process -FilePath $exePath -WorkingDirectory (Split-Path $exePath) -PassThru
 $t0 = Get-Date; $i = 0; $lastCpu = 0; $lastT = 0; $cpuLog = Join-Path $dir "cpu.txt"; "" | Set-Content $cpuLog
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds -and -not $p.HasExited) {
     $left = $Seconds - ((Get-Date) - $t0).TotalSeconds

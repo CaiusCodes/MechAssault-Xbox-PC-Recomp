@@ -110,8 +110,15 @@ Every one is marked `mechassault-recomp patch` and is general, so it belongs ups
 | `gpu/d3d12.cpp`, `app/settings.cpp`, `app/app.h`, `app/overlay.cpp` | FSR 1 (EASU + RCAS, own implementation of the published algorithm) when the picture is shown larger than rendered; `upscaler`, `fsr_sharpness` settings | every title upscaling a low render scale |
 | `gpu/d3d12.cpp` | `XBE_GPU=low` picks the power-saving GPU | low-end measurements on a PC with an iGPU |
 | `audio/xaudio2.cpp` | the output's peak/RMS in the perf log | "is any sound playing" without listening |
+| `app/game_code.cpp` | the player's build recompiles from the config that includes the xbe's (main.toml), not game.toml alone | the release left out every title's hand-checked symbols and hooks (Breakdown too) |
+| `app/setup.cpp` | `XBE_SETUP_TEST=1`: unattended setup (no shortcut, windowed, Play pressed by itself) | end-to-end first-run tests |
+| `core/game_import.*` | `Profile::skip`: files never copied | MechAssault's XDemos and updater images |
+| `app/main.cpp` | frame limiter on a high-resolution waitable timer | less CPU at the same pacing |
+| `gpu/d3d12.cpp` | debug layer messages into the log; integrated-GPU detection (Auto render scale at most 2x) | diagnostics, low-end defaults |
+| `app/settings.cpp`, `app/overlay.cpp`, `gpu/d3d12.cpp` | Brightness (gamma curve through the gamma ramp) | asked for |
 
-Before these go back to Breakdown, its own boots should be re-run: the STATUS_PENDING change alters what Breakdown's
+The `game_code.cpp` fix matters for Breakdown's own release today. Before these go back to Breakdown, its own boots
+should be re-run: the STATUS_PENDING change alters what Breakdown's
 XAPI sees for overlapped reads (Breakdown's loader races were around exactly that code).
 
 ## Toward a shared pipeline

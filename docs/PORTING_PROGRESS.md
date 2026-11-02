@@ -63,10 +63,13 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
 15. **More of the game**: local multiplayer (Grinder, Colosseum, ATLAS) loads a second map and plays against
     attacking 'Mechs. The campaign's first unlocked missions (Planet Fall area) load; later campaign maps were not
     reached (the profile save is signed, so it cannot simply be edited to unlock them).
-16. **Packaging**: `release.bat` builds `outuildelease\package\MechAssault` (exe, README, licences,
-    resources with the compiler, 169 MB of it). Its setup window found the game beside it and validated it
-    (`runs\setup1.png`). Play (copying 3.4 GB into resources\game and building the code) was not run, so as not to
-    put a second copy of the game into OneDrive or a shortcut on the desktop.
+16. **Packaging and first run, end to end**: `release.bat` builds `outuildelease\package\MechAssault`. A copy
+    outside OneDrive (session temp folder) with the game beside it, run with `XBE_SETUP_TEST=1` (no shortcut,
+    windowed, Play pressed by itself): the setup found and checked the game (0.4 s), imported it (66 s), built the
+    game code on the spot (64 files, 13 s with 16 compilers), started it, and the pad script played into Mission 1
+    with the default settings (Widescreen at 3456x1460: `runs\e2e3	.png`). The first attempt crashed in
+    DirectSound, which exposed the shared bug that player-side builds ignored `main.toml` (KNOWN_ISSUES.md); fixed.
+    The test copy was deleted afterwards.
 
 ## How to build and test
 

@@ -275,7 +275,8 @@ Check Inspect(const fs::path& source, const Profile& profile) {
         if (!src->Has(f, false)) c.missing.push_back(f);
     for (const auto& d : profile.required_dirs)
         if (!src->Has(d, true)) c.missing.push_back(d + "/");
-    src->Walk([&](const std::string&, uint64_t size) {
+    src->Walk([&](const std::string& rel, uint64_t size) {
+        if (Skipped(profile, rel)) return;  // mechassault-recomp patch: what the import will copy
         c.files++;
         c.bytes += size;
     });
@@ -305,6 +306,19 @@ Check Inspect(const fs::path& source, const Profile& profile) {
     return c;
 }
 
+bool Skipped(const Profile& profile, const std::string& rel) {
+    auto lower = [](std::string x) {
+        for (char& ch : x) ch = char(std::tolower(static_cast<unsigned char>(ch)));
+        return x;
+    };
+    std::string r = lower(rel);
+    for (const std::string& s : profile.skip) {
+        std::string k = lower(s);
+        if (!k.empty() && k.back() == '/' ? r.compare(0, k.size(), k) == 0 : r == k) return true;
+    }
+    return false;
+}
+
 bool Import(const fs::path& source, const fs::path& dest, const Profile& profile, Progress& p, std::string& error) {
     Kind kind;
     std::string problem, fix;
@@ -314,7 +328,9 @@ bool Import(const fs::path& source, const fs::path& dest, const Profile& profile
         return false;
     }
     std::vector<std::pair<std::string, uint64_t>> files;
-    src->Walk([&](const std::string& rel, uint64_t size) { files.push_back({rel, size}); });
+    src->Walk([&](const std::string& rel, uint64_t size) {
+        if (!Skipped(profile, rel)) files.push_back({rel, size});  // mechassault-recomp patch
+    });
     uint64_t total = 0;
     for (auto& f : files) total += f.second;
     p.total = total;

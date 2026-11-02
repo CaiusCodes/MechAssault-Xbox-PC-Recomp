@@ -41,7 +41,8 @@ namespace fs = std::filesystem;
 struct Image {
     std::wstring exe;
     std::string xbe;
-    fs::path config;
+    fs::path config;  // the config with the xbe's [xbe] section (partitions, out)
+    fs::path entry;   // mechassault-recomp patch: the config to recompile from, which may include config
 };
 
 // as CMakePresets.json and CMakeLists.txt compile it for build.bat
@@ -89,23 +90,42 @@ int64_t NowMs() {
 fs::path CompilerDir() { return Paths().runtime / "compiler"; }  // breakdown-recomp patch: Paths()
 
 // the config in compiler\config whose [xbe] path is this xbe; an included one has no path
-fs::path ConfigFor(const std::string& xbe) {
+// mechassault-recomp patch: entry gets the config that includes it, if any (main.toml includes game.toml and the
+// title's hand-checked symbols and hooks; building from game.toml alone left those out, so the player's DLL differed
+// from the developer's: MechAssault crashed in DirectSound right after its audio banks loaded)
+fs::path ConfigFor(const std::string& xbe, fs::path* entry = nullptr) {
     std::error_code ec;
+    std::vector<std::pair<fs::path, toml::table>> configs;
     for (auto& e : fs::directory_iterator(CompilerDir() / "config", ec)) {
         try {
-            toml::table t = toml::parse_file(e.path().string());
-            if (fs::path(t["xbe"]["path"].value_or(std::string())).filename() == xbe) return e.path();
+            configs.push_back({e.path(), toml::parse_file(e.path().string())});
         } catch (const toml::parse_error&) {
         }
     }
-    return {};
+    fs::path found;
+    for (auto& [path, t] : configs)
+        if (fs::path(t["xbe"]["path"].value_or(std::string())).filename() == xbe) found = path;
+    fs::path own = found;
+    for (int depth = 0; !found.empty() && depth < 4; depth++) {
+        fs::path parent;
+        for (auto& [path, t] : configs)
+            if (auto inc = t["includes"].as_array())
+                for (auto& i : *inc)
+                    if (i.value_or(std::string()) == found.filename().string()) parent = path;
+        if (parent.empty()) break;
+        found = parent;
+    }
+    if (entry) *entry = found;
+    return own;
 }
 
 std::vector<Image> Images() {
     std::vector<Image> images;
     for (auto& [xbe, exe] : kGame.images) {
         std::string name = exe;
-        images.push_back({std::wstring(name.begin(), name.end()), xbe, ConfigFor(xbe)});
+        Image image{std::wstring(name.begin(), name.end()), xbe};
+        image.config = ConfigFor(xbe, &image.entry);
+        images.push_back(image);
     }
     return images;
 }
@@ -301,7 +321,7 @@ bool Translate(std::vector<Target>& targets, Processes& run) {
         fs::path work = WorkDir(*target.image);
         fs::path xbe = work / target.image->xbe;
         std::ofstream(xbe, std::ios::binary).write(reinterpret_cast<const char*>(target.xbe.data()), target.xbe.size());
-        std::wstring command = Quote(CompilerDir() / "xbe_recomp.exe") + L" " + Quote(target.image->config);
+        std::wstring command = Quote(CompilerDir() / "xbe_recomp.exe") + L" " + Quote(target.image->entry);
         command += L" " + Quote(xbe) + L" " + Quote(work) + L" --xdk " + Quote(CompilerDir() / "xdk");
         HANDLE process = run.Start(command, work);
         if (!process) return RecordFailure(L"xbe_recomp.exe could not be started.");

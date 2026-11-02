@@ -17,6 +17,8 @@ game layer, "Project" = build, tools, packaging.
 | The F1 menu was titled "Breakdown PC settings" | Shared | uses `GameInfo::short_title` |
 | A new display mode could not be undone if the display could not show it | Shared | keep-or-revert prompt, reverts after 15 s |
 | No FSR | Shared | FSR 1 (EASU + RCAS) in the present path, used when upscaling |
+| **Player-side builds ignored the title's own config**: the release's first start recompiled from `game.toml` alone (the config with the `[xbe]` path), not `main.toml`, which includes the hand-checked symbols and hooks. The packaged game then crashed in DirectSound after the audio banks loaded, exactly like the first dev boots | Shared | `app/game_code.cpp` recompiles from the config that includes the xbe's config, and still reads partitions from the latter. **Breakdown's release has the same code**: its `breakdown.toml` symbols (push buffers, palettes, SetLFO) would be missing from players' builds; worth checking there |
+| The setup copied 440 MB the game never reads (XDemos, dashboard update, downloader) | Game/Shared | `Profile::skip` in the import |
 | Mouse turns came out short (20 and 60 degrees for 45 and 90) | Game | the mouse model follows the game's measured torso ramp; now 45 and 90 |
 
 ## Open
@@ -33,7 +35,6 @@ game layer, "Project" = build, tools, packaging.
 | 'Mech preview in Select 'Mech (render to texture) | Game | Excluded from widening by its aspect check (not 4:3); confirm visually in Widescreen. |
 | 60 Hz emulated vertical blank on this 100 Hz display | Display | The game paces by time, so motion is right, but 60 fps on 100 Hz shows uneven cadence; use 60/120 Hz or VRR (the menu says so). |
 | Xbox Live, System Link, voice | Game | Untested and out of scope for now (XONLINE/XNET/XVOICE are recompiled; the SDK's XNet HLE serves System Link for other titles). |
-| `XDemos`, `dashupdate.xbe`, `update.xbe`, `downloader.xbe` | Project | Not needed to play. The setup's import copies the whole disc (including 386 MB of XDemos); excluding them would save space. |
 | Gap fill decodes some data as code (`unimplemented aaa/bound/insb...` in `analysis/xbe_recomp.log`) | Shared | Harmless unless reached; a trap would name the address. Mark the ranges as `[xbe] data_ranges` if one ever is. |
 | Two general file fixes are only in this repository | Shared | They belong in Breakdown's `sdk/` and upstream too, after Breakdown's own boots are re-run with them (j's decision). |
 | Pushing to GitHub was refused by the session's permission rules | Project | All work is committed locally on `main` in the MechAssault folder; push when ready. |

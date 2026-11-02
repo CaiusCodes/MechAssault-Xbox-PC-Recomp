@@ -562,6 +562,13 @@ void Join() {
 }
 
 // the chosen copy is checked on its own thread
+// mechassault-recomp patch: XBE_SETUP_TEST=1 runs the setup unattended for tests: no desktop shortcut, windowed,
+// and Play is pressed by itself once the game found beside the executable checks out and again once the code is built
+bool SetupTest() {
+    static const bool on = std::getenv("XBE_SETUP_TEST") != nullptr;
+    return on;
+}
+
 void Choose(const fs::path& source) {
     if (Busy() || source.empty() || g->source == Source::Imported || g->step == Step::Ready) return;
     Join();
@@ -587,6 +594,7 @@ void OnInspected() {
     g->source = c.ok ? Source::Ok : Source::Bad;
     g->message = Wide(c.problem);
     g->fix = Wide(c.fix);
+    if (SetupTest() && c.ok) PostMessageW(g->hwnd, WM_KEYDOWN, VK_RETURN, 0);  // mechassault-recomp patch
 }
 
 // a shortcut to this exe on the desktop
@@ -825,6 +833,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 g->step = Step::Ready;
                 g->tab = Tab::Play;
                 FlashWindow(hwnd, TRUE);
+                if (SetupTest()) PostMessageW(hwnd, WM_KEYDOWN, VK_RETURN, 0);  // mechassault-recomp patch
             } else if (GameCodeBuildCancelled()) {
                 DestroyWindow(hwnd);
                 return 0;
@@ -860,7 +869,8 @@ bool RunSetup(const gameimport::Profile& profile, GameFiles& game, bool have_gam
     state.have_game = have_game;
     state.imported = gameimport::Imported(Paths().game, profile);
     state.source = state.imported ? Source::Imported : Source::None;
-    state.fullscreen = Get().display_mode != DisplayMode::Windowed;
+    state.fullscreen = Get().display_mode != DisplayMode::Windowed && !SetupTest();
+    if (SetupTest()) state.shortcut = false;  // mechassault-recomp patch
     for (const auto& e : kGame.extras) state.game_extras.push_back(*e.flag);
     state.compiler_bytes = CompilerFolderBytes();
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
@@ -900,6 +910,7 @@ bool RunSetup(const gameimport::Profile& profile, GameFiles& game, bool have_gam
         if (!found.empty()) Choose(found[0]);  // checked at once; the player can still pick another
     } else {
         LOGR("Setup: the game code needs building");
+        if (SetupTest()) PostMessageW(hwnd, WM_KEYDOWN, VK_RETURN, 0);  // mechassault-recomp patch
     }
 
     MSG msg;

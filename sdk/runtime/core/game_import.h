@@ -19,6 +19,9 @@ struct Profile {
     std::vector<std::string> required;      // files the game needs, '/' separated, from the game's root
     std::vector<std::string> required_dirs; // folders, the same way
     uint32_t min_files = 0;                 // a complete copy has at least this many files
+    // mechassault-recomp patch: files and folders ("dir/") the game never reads, left out of the import (and of the
+    // counts the check reports), '/' separated, any case
+    std::vector<std::string> skip;
 };
 
 enum class Kind { None, Folder, DiscImage, Xiso };
@@ -67,5 +70,8 @@ std::vector<std::filesystem::path> Candidates(const std::filesystem::path& dir, 
 bool ReadCertificate(const std::vector<uint8_t>& xbe, uint32_t& title_id, std::string& name, uint32_t& version);
 
 std::string Sha1Hex(const std::vector<uint8_t>& data);
+
+// mechassault-recomp patch: rel (a '/' separated path from the game's root) is one of profile.skip or inside one
+bool Skipped(const Profile& profile, const std::string& rel);
 
 }  // namespace gameimport
