@@ -21,6 +21,7 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
 | Audio | output running; levels in the log; not heard yet | see the stress run below |
 | Long play without a crash | 6.5 min and 31 min of random play | "Stress run" below |
 | Local multiplayer (a second map: Colosseum) | yes | `runs\mp2_sheet.png` |
+| Two-player splitscreen (second pad scripted), also in Widescreen | yes | `runs\split1_sheet.png`, `runs\splitwide2\000.png` |
 | Video settings changed live mid-mission | yes | `scripts\pad_live_settings.txt`, `runs\live1` |
 | Packaged release: setup -> import -> player-side build -> play | yes (unattended test mode) | item 16 below |
 | Keyboard and mouse | mouse aim verified with injected counts; keys not pressed by a person | item 12 below |
@@ -67,7 +68,10 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
 14. **Long run**: see "Stress run" below.
 15. **More of the game**: local multiplayer (Grinder, Colosseum, ATLAS) loads a second map and plays against
     attacking 'Mechs. The campaign's first unlocked missions (Planet Fall area) load; later campaign maps were not
-    reached (the profile save is signed, so it cannot simply be edited to unlock them).
+    reached (the profile save is signed, so it cannot simply be edited to unlock them). Two-player splitscreen:
+    pad script steps prefixed `2:` press the second controller (`scripts\pad_local_splitscreen.txt`); both players
+    join, pick 'Mechs and play Grinder on Colosseum in two half-screen views. In Widescreen the halves were first
+    stretched (their cameras are 8:3 or 2:3, not 4:3, so the hook skipped them); the hook now widens those shapes too.
 16. **Packaging and first run, end to end**: `release.bat` builds `out\build\release\package\MechAssault`. A copy
     outside OneDrive (session temp folder) with the game beside it, run with `XBE_SETUP_TEST=1` (no shortcut,
     windowed, Play pressed by itself): the setup found and checked the game (0.4 s), imported it (66 s), built the
@@ -100,7 +104,7 @@ powershell -ExecutionPolicy Bypass -File scripts\run.ps1 -Seconds 95 -Every 3 -T
   10-second frame timing and audio level lines).
 - Scripts: `scripts\pad_title.txt` (title), `pad_mission1.txt`, `pad_mission1_play.txt`, `pad_speed.txt` (same walk
   for 30/60 fps comparisons), `pad_stress.txt` (5 minutes of random play), `pad_live_settings.txt` (settings changed
-  mid-mission with `set` steps), `pad_local_grinder.txt` (local multiplayer). `scripts\bench_scales.ps1` runs the
+  mid-mission with `set` steps), `pad_local_grinder.txt` (local multiplayer), `pad_local_splitscreen.txt` (two players). `scripts\bench_scales.ps1` runs the
   render-scale benchmark (`-Uncapped` for V-Sync off; `$env:XBE_GPU="low"` for the integrated GPU).
 - Packaged first run unattended: `release.bat`, copy the package somewhere outside OneDrive with the game folder (or
   a junction to it) beside it, set `XBE_SETUP_TEST=1` and start it.
