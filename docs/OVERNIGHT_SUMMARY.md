@@ -40,7 +40,8 @@ Zydis's submodule, a Windows path-length limit, not a repository problem).
 
 Working: logos -> title -> profile -> menus -> mission select -> briefing movie -> 'Mech select -> the first
 campaign map (Planet Fall / Going Down Hard) played with walking, torso aiming, firing, weapon switching, jump jets,
-enemies destroyed; local multiplayer Grinder on Colosseum against attacking 'Mechs; a 31-minute random-play run
+enemies destroyed; local multiplayer Grinder on Colosseum against attacking 'Mechs, with one player and as
+two-player splitscreen (also in Widescreen); a 31-minute random-play run
 of the campaign map with no crash or hang (60 fps in all 187 ten-second windows, stalls only while loading plus one
 57 ms frame, memory flat at ~400 MB); the packaged release's first run (setup -> import -> player-side build -> play). Not reached:
 later campaign maps (need playing through). Not done: a person playing with a controller or keyboard/mouse.
