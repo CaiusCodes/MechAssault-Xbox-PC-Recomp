@@ -462,7 +462,7 @@ void Menu() {
             if (Choice<uint32_t>("Anisotropic filtering", s.aniso,
                                  {{"As the game asks", 0}, {"2x", 2}, {"4x", 4}, {"8x", 8}, {"16x", 16}}))
                 Changed();
-            if (Choice<uint32_t>("Anti-aliasing", s.anti_aliasing, {{"Off", 0}, {"FXAA", 1}})) Changed();
+            if (Choice<uint32_t>("Anti-aliasing", s.anti_aliasing, {{"Off", 0}, {"FXAA", 1}, {"SMAA", 2}})) Changed();
             // mechassault-recomp patch: FSR 1 (own implementation of its algorithm) for a render smaller than the
             // picture on screen
             if (Choice<uint32_t>("Upscaling", s.upscaler, {{"Bilinear", 0}, {"FSR 1", 1}})) Changed();

@@ -9,7 +9,7 @@ frame; "frames:" lines are the shared frame statistics (average, 1% low, p99, wo
 Guest D3D8 calls and the game's raw NV2A pushes update one console GPU state; the D3D12 backend turns it into
 pipeline states on a render thread, translates vertex programs, register combiners and the fixed-function pipeline
 to HLSL (compiled on first use, cached on disk beside the DLL), and keeps console render targets as GPU textures. The
-picture is rendered at a multiple of the console's 640x480 (render scale), then FXAA (optional) runs on the finished
+picture is rendered at a multiple of the console's 640x480 (render scale), then FXAA or SMAA (optional) runs on the finished
 frame, then it is scaled to the window (filtered downscale when the render is larger; FSR 1, or bilinear, when
 smaller), then the brightness/gamma ramp, then the ImGui overlay.
 
@@ -93,7 +93,7 @@ menu says so), and FSR 1 upscales the rest of the way. A fixed 3x or 4x can stil
 | FXAA (on the finished frame, at render scale; the game never reads the smoothed copy) | yes, default |
 | Supersampling (render scale above the window) | yes: the downscale filters up to 4x4 samples per pixel |
 | MSAA | not implemented: needs multisampled targets plus a resolve before every place the game reads a target as a texture |
-| SMAA | not implemented |
+| SMAA 1x (F1 > Anti-aliasing > SMAA; Jimenez et al.'s shader and tables, MIT, built into the executable) | yes: luma edges, HIGH preset; smooths silhouettes like FXAA but keeps textures sharp (`runs\smaa_compare.png`). Mission 1 uncapped, 1280x960 window: 2x 747.6 -> 745.8 fps (FXAA -> SMAA), 4x (2560x1920) 698.0 -> 676.6 fps, about 0.05 ms a frame |
 
 ## FSR
 

@@ -64,7 +64,7 @@ repository keeps the same history shape: commit 1 is the pristine SDK, commit 2 
 | Supersampled downscale when render > window | 2 (measured on Breakdown captures) | Reused, not separately measured here. |
 | FXAA (finished frame) | 1 (1% lows unchanged at 1x-3x) | Reused, on by default. |
 | FSR | **5: not in Breakdown.** `enhancements-plan.md` lists FSR 1 as planned; no FSR code exists in `sdk/` | Added here to the shared present path: FSR 1 (EASU + RCAS) written from the published algorithm, used when upscaling (GRAPHICS_AND_PERFORMANCE.md). |
-| MSAA / SMAA | **5**: planned only | Not implemented. |
+| MSAA / SMAA | **5**: planned only | SMAA 1x added here (the reference shader, embedded); MSAA not implemented. |
 | Anisotropic filtering | 1 | Reused. |
 | True widescreen (`gpu/widescreen.h` squeeze + title camera hook) | 1 (squeeze), hook is game-specific (4) | Squeeze reused unchanged; a new MechAssault camera hook widens 4:3 perspective cameras. 16:9 verified. |
 | Aspect choices 4:3 / Widescreen / 16:9 stretched / fill | 1 | Reused. MechAssault ignores the console widescreen flag (identical frames told 4:3 or 16:9). |

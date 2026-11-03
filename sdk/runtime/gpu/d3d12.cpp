@@ -39,7 +39,10 @@
 #include "gpu/texture.h"
 #include "gpu/texturedumper.h"
 #include "gpu/prompts.h"  // mechassault-recomp patch
+#include "gpu/smaa_hlsl.h"  // mechassault-recomp patch: SMAA (sdk/third_party/smaa)
 #include "gpu/vertex.h"
+#include "../../third_party/smaa/AreaTex.h"
+#include "../../third_party/smaa/SearchTex.h"
 #include "gpu/widescreen.h"  // breakdown-recomp patch
 #include "kernel/kernel.h"
 
@@ -828,6 +831,8 @@ private:
     // breakdown-recomp patch: the anti-aliased copy of the frame, null when off or unavailable
     ID3D12Resource* AntiAlias(Target& t);
     bool EnsureAaTarget(uint32_t w, uint32_t h);
+    ID3D12Resource* Smaa(Target& t);
+    bool EnsureSmaaResources(uint32_t w, uint32_t h);
     // mechassault-recomp patch: the frame upscaled with FSR 1 to the picture's size on screen, null when off or not
     // upscaling
     ID3D12Resource* Upscale(ID3D12Resource* frame, DXGI_FORMAT fmt);
@@ -982,6 +987,12 @@ private:
     ComPtr<ID3D12Resource> aa_;  // breakdown-recomp patch: the anti-aliased frame
     D3D12_RESOURCE_STATES aa_state_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
     uint32_t aa_w_ = 0, aa_h_ = 0, aa_rtv_ = UINT32_MAX;
+    // mechassault-recomp patch: SMAA's edges and blend weights at the frame's size, and its two lookup tables
+    ComPtr<ID3D12Resource> smaa_[2];
+    D3D12_RESOURCE_STATES smaa_state_[2] = {D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                                            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE};
+    uint32_t smaa_w_ = 0, smaa_h_ = 0, smaa_rtv_[2] = {UINT32_MAX, UINT32_MAX};
+    Tex smaa_area_, smaa_search_;
     // mechassault-recomp patch: FSR 1's two passes at the picture's size on screen (EASU's result, then RCAS's)
     ComPtr<ID3D12Resource> fsr_[2];
     D3D12_RESOURCE_STATES fsr_state_[2] = {D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
@@ -3793,8 +3804,157 @@ bool D3D12Backend::EnsureAaTarget(uint32_t w, uint32_t h) {
     return true;
 }
 
+// mechassault-recomp patch: SMAA 1x, Jimenez et al.'s Enhanced Subpixel Morphological Antialiasing
+// (sdk/third_party/smaa, MIT, unchanged and embedded): luma edge detection, blending weights from the edges' shapes
+// (the precomputed area and search tables), then neighbourhood blending; the HIGH preset. Its vertex-shader parts are
+// called from the pixel shaders, the full-screen triangle giving the texture coordinates.
+const std::string& SmaaHlsl(int pass) {
+    static const std::string head = std::string(R"(
+cbuffer B : register(b1) { float4 p0; float4 p1; };
+#define SMAA_RT_METRICS p0
+#define SMAA_CUSTOM_SL 1
+#define SMAA_PRESET_HIGH 1
+SamplerState LinearSampler : register(s0);
+SamplerState PointSampler : register(s1);
+#define SMAATexture2D(tex) Texture2D tex
+#define SMAATexturePass2D(tex) tex
+#define SMAASampleLevelZero(tex, coord) tex.SampleLevel(LinearSampler, coord, 0)
+#define SMAASampleLevelZeroPoint(tex, coord) tex.SampleLevel(PointSampler, coord, 0)
+#define SMAASampleLevelZeroOffset(tex, coord, offset) tex.SampleLevel(LinearSampler, coord, 0, offset)
+#define SMAASample(tex, coord) tex.Sample(LinearSampler, coord)
+#define SMAASamplePoint(tex, coord) tex.Sample(PointSampler, coord)
+#define SMAASampleOffset(tex, coord, offset) tex.Sample(LinearSampler, coord, offset)
+#define SMAA_FLATTEN [flatten]
+#define SMAA_BRANCH [branch]
+#define SMAATexture2DMS2(tex) Texture2DMS<float4, 2> tex
+#define SMAALoad(tex, pos, sample) tex.Load(pos, sample)
+#define SMAAGather(tex, coord) tex.Gather(LinearSampler, coord, 0)
+)") + kSmaaSource + R"(
+struct O { float4 p : SV_Position; float2 uv : TEXCOORD0; };
+O vs(uint id : SV_VertexID) {
+    O o;
+    float2 t = float2((id << 1) & 2, id & 2);
+    o.p = float4(t * float2(2, -2) + float2(-1, 1), 0, 1);
+    o.uv = t;
+    return o;
+}
+)";
+    static const std::string passes[3] = {
+        head + R"(
+Texture2D colorTex : register(t0);
+float4 psmain(O i) : SV_Target {
+    float4 offset[3];
+    SMAAEdgeDetectionVS(i.uv, offset);
+    return float4(SMAALumaEdgeDetectionPS(i.uv, offset, colorTex), 0, 0);
+}
+)",
+        head + R"(
+Texture2D edgesTex : register(t0);
+Texture2D areaTex : register(t1);
+Texture2D searchTex : register(t2);
+float4 psmain(O i) : SV_Target {
+    float2 pixcoord;
+    float4 offset[3];
+    SMAABlendingWeightCalculationVS(i.uv, pixcoord, offset);
+    return SMAABlendingWeightCalculationPS(i.uv, pixcoord, offset, edgesTex, areaTex, searchTex, float4(0, 0, 0, 0));
+}
+)",
+        head + R"(
+Texture2D colorTex : register(t0);
+Texture2D blendTex : register(t1);
+float4 psmain(O i) : SV_Target {
+    float4 offset;
+    SMAANeighborhoodBlendingVS(i.uv, offset);
+    return SMAANeighborhoodBlendingPS(i.uv, offset, colorTex, blendTex);
+}
+)"};
+    return passes[pass];
+}
+
+bool D3D12Backend::EnsureSmaaResources(uint32_t w, uint32_t h) {
+    if (!smaa_area_.res) {
+        texturedumper::Image area, search;
+        area.format = DXGI_FORMAT_R8G8_UNORM;
+        area.width = AREATEX_WIDTH;
+        area.height = AREATEX_HEIGHT;
+        area.levels.push_back({std::vector<uint8_t>(areaTexBytes, areaTexBytes + AREATEX_SIZE), AREATEX_PITCH});
+        search.format = DXGI_FORMAT_R8_UNORM;
+        search.width = SEARCHTEX_WIDTH;
+        search.height = SEARCHTEX_HEIGHT;
+        search.levels.push_back(
+            {std::vector<uint8_t>(searchTexBytes, searchTexBytes + SEARCHTEX_SIZE), SEARCHTEX_PITCH});
+        CreatePackTexture(smaa_area_, area);
+        CreatePackTexture(smaa_search_, search);
+        if (!smaa_area_.res || !smaa_search_.res) return false;
+    }
+    if (smaa_[0] && smaa_w_ == w && smaa_h_ == h) return true;
+    const DXGI_FORMAT fmt[2] = {DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM};  // edges, blend weights
+    for (int i = 0; i < 2; i++) {
+        if (smaa_[i]) CurrentFrame().garbage.push_back(smaa_[i]);
+        smaa_[i].Reset();
+        if (smaa_rtv_[i] == UINT32_MAX) {
+            if (free_rtv_.empty()) return false;
+            smaa_rtv_[i] = free_rtv_.back();
+            free_rtv_.pop_back();
+        }
+        D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_DEFAULT};
+        D3D12_RESOURCE_DESC td = Texture2DDesc(fmt[i], w, h);
+        td.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        smaa_state_[i] = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        if (FAILED(dev_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td, smaa_state_[i], nullptr,
+                                                 IID_PPV_ARGS(&smaa_[i])))) {
+            LOG_FIRST(1, "d3d12: no %ux%u targets for SMAA", w, h);
+            return false;
+        }
+        dev_->CreateRenderTargetView(smaa_[i].Get(), nullptr, Cpu(rtv_heap_.Get(), smaa_rtv_[i], rtv_inc_));
+    }
+    smaa_w_ = w;
+    smaa_h_ = h;
+    return true;
+}
+
+ID3D12Resource* D3D12Backend::Smaa(Target& t) {
+    D3D12_RESOURCE_DESC d = t.res->GetDesc();
+    uint32_t w = uint32_t(d.Width), h = d.Height;
+    if (!w || !h || !EnsureAaTarget(w, h) || !EnsureSmaaResources(w, h)) return nullptr;
+    const DXGI_FORMAT out[3] = {DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, kBgra};
+    for (int i = 0; i < 3; i++)
+        if (!EnsurePassPipeline(SmaaHlsl(i).c_str(), "psmain", out[i], -1)) {
+            LOG_FIRST(1, "d3d12: SMAA shaders did not compile, FXAA instead");
+            return nullptr;
+        }
+    LOG_FIRST(1, "d3d12: SMAA at %ux%u", w, h);
+    float p[8] = {1.0f / float(w), 1.0f / float(h), float(w), float(h), 0, 0, 0, 0};
+    float clear[4] = {0, 0, 0, 0};
+    Transition(t.res.Get(), t.state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    // edges: only edge pixels are written (the rest discard), so the target starts cleared
+    Transition(smaa_[0].Get(), smaa_state_[0], D3D12_RESOURCE_STATE_RENDER_TARGET);
+    cl_->ClearRenderTargetView(Cpu(rtv_heap_.Get(), smaa_rtv_[0], rtv_inc_), clear, 0, nullptr);
+    ID3D12Resource* src[3] = {t.res.Get(), nullptr, nullptr};
+    DXGI_FORMAT fmt[3] = {t.fmt, kBgra, kBgra};
+    Pass(SmaaHlsl(0).c_str(), "psmain", out[0], Cpu(rtv_heap_.Get(), smaa_rtv_[0], rtv_inc_), w, h, src, fmt, p, -1);
+    Transition(smaa_[0].Get(), smaa_state_[0], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    // blending weights from the edges and the two tables
+    Transition(smaa_[1].Get(), smaa_state_[1], D3D12_RESOURCE_STATE_RENDER_TARGET);
+    cl_->ClearRenderTargetView(Cpu(rtv_heap_.Get(), smaa_rtv_[1], rtv_inc_), clear, 0, nullptr);
+    ID3D12Resource* src2[3] = {smaa_[0].Get(), smaa_area_.res.Get(), smaa_search_.res.Get()};
+    DXGI_FORMAT fmt2[3] = {DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_R8_UNORM};
+    Pass(SmaaHlsl(1).c_str(), "psmain", out[1], Cpu(rtv_heap_.Get(), smaa_rtv_[1], rtv_inc_), w, h, src2, fmt2, p, -1);
+    Transition(smaa_[1].Get(), smaa_state_[1], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    // neighbourhood blending into the anti-aliased frame
+    Transition(aa_.Get(), aa_state_, D3D12_RESOURCE_STATE_RENDER_TARGET);
+    ID3D12Resource* src3[3] = {t.res.Get(), smaa_[1].Get(), nullptr};
+    DXGI_FORMAT fmt3[3] = {t.fmt, DXGI_FORMAT_R8G8B8A8_UNORM, kBgra};
+    Pass(SmaaHlsl(2).c_str(), "psmain", out[2], Cpu(rtv_heap_.Get(), aa_rtv_, rtv_inc_), w, h, src3, fmt3, p, -1);
+    Transition(aa_.Get(), aa_state_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    return aa_.Get();
+}
+
 ID3D12Resource* D3D12Backend::AntiAlias(Target& t) {
-    if (app::Get().anti_aliasing != 1 || !t.res) return nullptr;
+    // mechassault-recomp patch: 2 is SMAA; FXAA stands in should it not start
+    if (app::Get().anti_aliasing == 2 && t.res)
+        if (ID3D12Resource* r = Smaa(t)) return r;
+    if (app::Get().anti_aliasing == 0 || !t.res) return nullptr;
     D3D12_RESOURCE_DESC d = t.res->GetDesc();
     uint32_t w = uint32_t(d.Width), h = d.Height;
     if (!w || !h || !EnsureAaTarget(w, h)) return nullptr;

@@ -59,7 +59,7 @@ void Load() {
     s.perf_overlay = std::min(t["perf_overlay"].value_or(s.perf_overlay), 2u);
     s.diagnostics_log = t["diagnostics_log"].value_or(s.diagnostics_log);
     s.vblank_sync = std::min(t["vblank_sync"].value_or(s.vblank_sync), 1u);
-    s.anti_aliasing = std::min(t["anti_aliasing"].value_or(s.anti_aliasing), 1u);
+    s.anti_aliasing = std::min(t["anti_aliasing"].value_or(s.anti_aliasing), 2u);  // mechassault-recomp patch: 2 SMAA
     s.refresh_hz = std::min(t["refresh_rate"].value_or(s.refresh_hz), 1000u);
     s.aspect_ratio = std::min(t["aspect_ratio"].value_or(s.aspect_ratio), kAspectWide219);
     s.monitor = t["monitor"].value_or(s.monitor);

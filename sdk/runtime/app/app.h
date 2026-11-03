@@ -39,7 +39,8 @@ struct Settings {
     uint32_t perf_overlay = 0;       // 0 off, 1 FPS counter, 2 FPS counter and frame timing diagnostics
     bool diagnostics_log = false;    // a frame timing summary in the log every 10 seconds
     uint32_t vblank_sync = 0;        // 0: the console's blank follows the display's where it can (vblank.cpp); 1: timer
-    uint32_t anti_aliasing = 1;      // 0 off, 1 FXAA on the finished frame (render scale above the display supersamples)
+    uint32_t anti_aliasing = 1;      // on the finished frame: 0 off, 1 FXAA, 2 SMAA (mechassault-recomp patch); render
+                                     // scale above the display supersamples
     uint32_t refresh_hz = 0;         // Fullscreen mode's refresh rate, 0 the desktop's (60 or 120 Hz shows 60 fps evenly)
     // mechassault-recomp patch: 0 bilinear, 1 FSR 1 (EASU + RCAS) when the picture is shown larger than rendered;
     // sharpness 0 (off) .. 20 (strongest), in tenths of FSR's stops
