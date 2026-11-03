@@ -613,7 +613,8 @@ void Join() {
 
 // the chosen copy is checked on its own thread
 // mechassault-recomp patch: XBE_SETUP_TEST=1 runs the setup unattended for tests: no desktop shortcut, windowed,
-// and Play is pressed by itself once the game found beside the executable checks out and again once the code is built
+// and Play is pressed by itself once the game found beside the executable (or named by XBE_SETUP_SOURCE) checks out
+// and again once the code is built
 bool SetupTest() {
     static const bool on = std::getenv("XBE_SETUP_TEST") != nullptr;
     return on;
@@ -957,11 +958,16 @@ bool RunSetup(const gameimport::Profile& profile, GameFiles& game, bool have_gam
     DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark));
     DragAcceptFiles(hwnd, TRUE);
     SetTimer(hwnd, 1, 100, nullptr);
-    ShowWindow(hwnd, SW_SHOW);
-    SetForegroundWindow(hwnd);
+    // mechassault-recomp patch: XBE_BACKGROUND (tests) shows the window without taking the focus
+    bool background = std::getenv("XBE_BACKGROUND") != nullptr;
+    ShowWindow(hwnd, background ? SW_SHOWNOACTIVATE : SW_SHOW);
+    if (!background) SetForegroundWindow(hwnd);
 
     if (!state.imported) {
-        std::vector<fs::path> found = gameimport::Candidates(ExeDir(), profile);
+        // mechassault-recomp patch: XBE_SETUP_SOURCE (with XBE_SETUP_TEST) names the copy to check, wherever it is
+        const char* source = SetupTest() ? std::getenv("XBE_SETUP_SOURCE") : nullptr;
+        std::vector<fs::path> found = source ? std::vector<fs::path>{fs::u8path(source)}
+                                             : gameimport::Candidates(ExeDir(), profile);
         LOGR("Setup: game not imported yet, %zu candidate(s) beside the executable", found.size());
         if (!found.empty()) Choose(found[0]);  // checked at once; the player can still pick another
     } else {
