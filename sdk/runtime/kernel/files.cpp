@@ -2,6 +2,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -81,6 +82,7 @@ struct File : Object {
     // mechassault-recomp patch: opened without FILE_SYNCHRONOUS_IO_(NON)ALERT (options 0x10/0x20): an overlapped
     // handle, whose transfers report STATUS_PENDING (see Transfer)
     bool async = false;
+    bool media = false;  // mechassault-recomp patch: a file on the game disc (see Transfer)
     std::mutex io;  // threads sharing a handle: seek and transfer stay together
     File() : Object(ObjType::File) {}
     ~File() override {
@@ -235,6 +237,7 @@ struct Target {
     std::string host;                    // empty on the disc image or unmapped
     bool disc = false;                   // on the mounted disc image
     const Disc::Entry* entry = nullptr;  // there: the file or folder, null when missing
+    bool media = false;                  // mechassault-recomp patch: on the game disc (the image or the game's folder)
 };
 
 Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
@@ -275,8 +278,8 @@ Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
     for (auto& part : parts)
         if (part.find(':') != std::string::npos) return {};
     if (best->first == kCdRom)
-        if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts)};
-    return {MatchCase(best->second, parts).string()};
+        if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts), true};
+    return {MatchCase(best->second, parts).string(), false, nullptr, best->first == kCdRom};
 }
 
 // the disc image is read only: nothing on it is created, replaced or written
@@ -299,6 +302,7 @@ uint32_t OpenOnDisc(const Disc::Entry* e, const std::string& name, uint32_t hand
     f->xbox = Normalize(name);
     f->entry = e;
     f->dir = e->dir;
+    f->media = true;
     f->async = !(options & 0x30);
     W32(handle_out, NewHandle(f));
     IoStatus(iosb, kSuccess, 1);
@@ -421,6 +425,7 @@ KERNEL_EXPORT(190, NtCreateFile, 9) {
     f->host = host;
     f->xbox = Normalize(name);
     f->fp = fp;
+    f->media = t.media;
     f->delete_on_close = options & 0x1000;  // FILE_DELETE_ON_CLOSE
     f->async = !(options & 0x30);
     W32(handle_out, NewHandle(f));
@@ -447,6 +452,7 @@ KERNEL_EXPORT(202, NtOpenFile, 6) {
     f->host = host;
     f->xbox = Normalize(name);
     f->dir = fs::is_directory(host, ec);
+    f->media = t.media;
     f->async = !(options & 0x30);
     if (!f->dir) {
         f->fp = std::fopen(host.c_str(), "r+b");
@@ -492,6 +498,24 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
                                : std::fread(HostPtr(at), 1, chunk, f->fp);
         n += uint32_t(done);
         if (done < chunk) break;
+    }
+    // mechassault-recomp patch: a sector-aligned read from the game disc at an explicit offset that starts inside the
+    // file and runs past its end comes back whole, the rest zeros. The engine's buffered stream reads 16 KB blocks
+    // from 2 KB boundaries without clamping them to the file's size and takes any short read for a disc error
+    // ("There's a problem with the disc"), as the MechAssault 2 recomp (LegendaryXP/Mechassault2-recomp) found on its
+    // Mission 5. Small or unaligned reads keep their exact counts. Logged as a warning, the first 50 times.
+    if (!write && f->media && off && int64_t(R64(off)) >= 0 && n && n < len && pos % 512 == 0 && len % 512 == 0) {
+        for (uint32_t z = n; z < len;) {
+            uint32_t at = pages ? R32(pages + z / 0x1000 * 8) + z % 0x1000 : buf + z;
+            uint32_t chunk = pages ? std::min(len - z, 0x1000 - z % 0x1000) : len - z;
+            std::memset(HostPtr(at), 0, chunk);
+            z += chunk;
+        }
+        static std::atomic<int> padded{0};
+        if (padded++ < 50)
+            LOGW("io: read of %s at %llX for %X ran past its end after %X bytes: zero padded", f->xbox.c_str(),
+                 (unsigned long long)pos, len, n);
+        n = len;
     }
     f->pos = pos + n;
     // mechassault-recomp patch: XBE_IOLOG=1 logs every transfer (first 2000): file, offset, size, done, completion

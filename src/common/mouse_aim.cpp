@@ -1,11 +1,16 @@
-﻿// Mouse aiming for MechAssault, first version: the mouse drives pad 1's right stick, which the game reads as Look
-// up/down and Rotate left/right (the torso; its Normal thumbstick layout). The game turns the torso at a rate set by
-// the stick, so each poll the mouse counts since the last one are turned into the deflection that would turn that far
-// in the time since the last poll, past the stick's dead zone; what does not fit under full deflection carries into
-// the next polls, so a quick flick finishes at the stick's top rate instead of being lost. A real pad's right stick
-// wins. The window, raw input, cursor capture and the menu come from the Breakdown port's mouse look; Breakdown's
-// version wrote into the game's own controller object, which MechAssault does not have mapped yet
-// (KNOWN_ISSUES.md: mouse aiming is a stick emulation).
+﻿// Mouse aiming for MechAssault. True mouse look: in play, the mouse's counts since the last poll turn player 1's
+// 'Mech and tilt the view directly, in the game's own state (found by memory diffs and pokes, Mission 1):
+//   0x387C8C          player 1's pilot (vtable 0x2FA4C0); its +0x10 is the 'Mech it drives (vtable 0x2FDA50)
+//   'Mech +0x2B0      the heading the right stick turns, degrees; the body (+0x26C) and the camera follow it the
+//                     same frame (setting it 90 degrees on turned the body there by the next frame)
+//   pilot +0x478      the view's pitch, degrees, 0 level, positive down, held between -35 and 50 by the stick
+// Both are integrated state the game keeps, so the mouse adds its turn to them once and nothing undoes it: a turn is
+// exact at any speed, with no stick dead zone, rate cap or ramp in between (the MechAssault 2 recomp, LegendaryXP/
+// Mechassault2-recomp, found the stick path cannot feel right for the same engine and hooked heading and pitch).
+// When those objects are not there (anything but a 'Mech in play) the mouse falls back to the stick emulation below:
+// the counts become the right stick deflection that would turn that far, past the dead zone, the rest carried into
+// the next polls. A real pad's right stick still works alongside. The window, raw input, cursor capture and the menu
+// come from the Breakdown port's mouse look.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -13,9 +18,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "core/input.h"
 #include "core/log.h"
+#include "kernel/kernel.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -42,6 +49,35 @@ bool g_mouse_invert_y = false;
 namespace {
 
 std::atomic<int32_t> g_dx{0}, g_dy{0};  // raw counts the game has not taken yet
+
+constexpr uint32_t kPilot = 0x387C8C, kPilotVtable = 0x2FA4C0, kMechVtable = 0x2FDA50;
+constexpr uint32_t kMechOfPilot = 0x10, kHeadingAt = 0x2B0, kPitchAt = 0x478;
+constexpr float kPitchUp = -35.0f, kPitchDown = 50.0f;  // the stick's limits
+
+float ReadF(uint32_t va) {
+    uint32_t bits = kernel::R32(va);
+    float v;
+    std::memcpy(&v, &bits, 4);
+    return v;
+}
+
+void WriteF(uint32_t va, float v) {
+    uint32_t bits;
+    std::memcpy(&bits, &v, 4);
+    kernel::W32(va, bits);
+}
+
+// turns player 1's 'Mech and tilts the view by these degrees; false when there is no 'Mech in play to turn
+bool Look(float yaw, float pitch) {
+    if (!InPlay()) return false;
+    uint32_t pilot = kernel::R32(kPilot);
+    if (!pilot || kernel::R32(pilot) != kPilotVtable) return false;
+    uint32_t mech = kernel::R32(pilot + kMechOfPilot);
+    if (!mech || kernel::R32(mech) != kMechVtable) return false;
+    if (yaw != 0) WriteF(mech + kHeadingAt, ReadF(mech + kHeadingAt) + yaw);
+    if (pitch != 0) WriteF(pilot + kPitchAt, std::clamp(ReadF(pilot + kPitchAt) + pitch, kPitchUp, kPitchDown));
+    return true;
+}
 
 // The stick model, from measurements: the game's pad code (0x276C0) scales each axis by 1/32768, zeroes it inside a
 // dead zone of 0.30 (0x33D90C) and stretches the rest back to 0..1 ((|v| - 0.3) / 0.7). The torso then turns at the
@@ -139,6 +175,12 @@ void MouseAimPad(int port, input::Pad& pad) {
         return;
     }
     float k = 0.05f * float(g_mouse_sensitivity) / 100.0f;
+    // mouse down (positive counts) looks down, the view's positive pitch, unless inverted
+    float yaw = float(dx) * k, pitch = float(dy) * k * (g_mouse_invert_y ? -1.0f : 1.0f);
+    if (Look(yaw, pitch)) {
+        ax = ay = {};
+        return;
+    }
     ax.pending = std::clamp(ax.pending + float(dx) * k, -kMaxPending, kMaxPending);
     // mouse down (positive counts) looks down, which is the stick's up (positive) in this game, unless inverted
     ay.pending = std::clamp(ay.pending + float(dy) * k * (g_mouse_invert_y ? -1.0f : 1.0f), -kMaxPending, kMaxPending);
@@ -225,8 +267,8 @@ void MouseMenu() {
     }
     changed |= ImGui::Checkbox("Invert mouse Y", &g_mouse_invert_y);
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("The mouse turns the torso and looks up and down through the game's right stick. The cursor "
-                       "is held while the game is in front.");
+    ImGui::TextWrapped("The mouse turns your 'Mech and looks up and down directly, at 0.05 degrees a count at 100%. "
+                       "The cursor is held while you play and freed in the menus.");
     ImGui::PopStyleColor();
     if (changed) app::Save();
     BindingsMenu();

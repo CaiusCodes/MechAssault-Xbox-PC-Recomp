@@ -24,8 +24,10 @@
 namespace mechassault {
 extern uint32_t g_fov_percent;
 }
+void MechAssaultSelfTest(X86Context& ctx, uint8_t* base);  // selftest.cpp
 
-void MechAssaultWidenProjection(X86Context& ctx, uint8_t*) {
+void MechAssaultWidenProjection(X86Context& ctx, uint8_t* base) {
+    MechAssaultSelfTest(ctx, base);
     // how often cameras are rebuilt (a setting change applies from the next one): with XBE_PERF, every 10 s
     static int builds = 0;
     static auto since = std::chrono::steady_clock::now();

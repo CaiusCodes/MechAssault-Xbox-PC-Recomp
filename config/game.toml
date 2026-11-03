@@ -12,6 +12,9 @@ library = "MechAssault.dll"  # <exe>.dll, which the executable delay loads
 
 # extra entry points
 [functions]
+# mechassault-recomp: a WMA decoder method in the table at 0x31A240 that nothing calls directly; the code before it ends
+# in a call that does not return, so it was decoded as that function's tail (scripts/vtable_audit.py)
+0x2B0AE4 = ""
 
 # functions the host replaces or calls by name, 0 where the image has none
 [symbols]

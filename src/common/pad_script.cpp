@@ -2,10 +2,13 @@
 // names a text file of lines "<seconds> <control> [hold ms, default 150] [value]", seconds from the first poll;
 // controls: a b x y black white lt rt start back l3 r3 up down left right, lx ly rx ry (value -32768..32767, held
 // for the hold time); "dump" logs every guest thread's stack and starts an F3 frame capture (XBE_CAPTURE_DIR).
-// "peek" logs the XBE_PEEK values only; "memdump <tag>" writes the image's data for scripts/memdiff.py.
+// "peek" logs the XBE_PEEK values only; "addf <chain> <amount>" / "logf <chain>" change / log a float through a pointer
+// chain ("387C8C>10>26C"); "memdump <tag> [1]" writes the image's data (1: all committed memory) for
+// scripts/memdiff.py.
 // "menu" opens or closes the F1 settings menu; "set <key> <value>" changes a video setting live as the F1 menu would
 // (render_scale, aspect_ratio, anti_aliasing, upscaler, fsr_sharpness, brightness, fps_cap, vsync, width, height,
 // display_mode 0 fullscreen 1 borderless 2 windowed). '#' starts a comment. Merged into whatever the keyboard and controllers give.
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -20,6 +23,7 @@
 #include "gpu/backend.h"
 #include "gpu/prompts.h"
 #include "kernel/kernel.h"
+#include "kernel/memory.h"
 
 #include "app/app.h"
 
@@ -39,7 +43,18 @@ struct Step {
     int value;
     std::string key;  // "set": the setting
     int port = 0;     // a control written "2:a" goes to controller port 2 (index 1)
+    float add = 0;    // "addf": the amount
 };
+
+// "387C8C>10>26C": 0x387C8C, then for each '>' the pointer there plus that offset; 0 when a pointer is null
+uint32_t Chain(const std::string& text) {
+    uint32_t at = uint32_t(std::strtoul(text.c_str(), nullptr, 16));
+    for (size_t p = text.find('>'); p != std::string::npos && at; p = text.find('>', p + 1)) {
+        uint32_t ptr = kernel::R32(at);
+        at = ptr ? ptr + uint32_t(std::strtoul(text.c_str() + p + 1, nullptr, 16)) : 0;
+    }
+    return at;
+}
 
 std::vector<Step> Load() {
     std::vector<Step> steps;
@@ -53,6 +68,12 @@ std::vector<Step> Load() {
         Step st{};
         double hold = 150;
         if (!(s >> st.at >> st.control)) continue;
+        if (st.control == "addf" || st.control == "logf") {
+            s >> st.key >> st.add;
+            st.until = st.at;
+            steps.push_back(st);
+            continue;
+        }
         if (st.control == "set" || st.control == "memdump") {
             s >> st.key >> st.value;
             st.until = st.at;
@@ -123,6 +144,24 @@ void ScriptPad(int port, input::Pad& pad) {
                     kernel::LogGuestStack(*t->ctx, 32);
                 }
         }
+        // "addf <chain> <amount>" adds to the float there, "logf <chain>" logs it (chains as Chain reads them)
+        if ((st.control == "addf" || st.control == "logf") && now >= st.at && i >= dumped) {
+            dumped = i + 1;
+            if (uint32_t at = Chain(st.key)) {
+                float v;
+                uint32_t bits = kernel::R32(at);
+                std::memcpy(&v, &bits, 4);
+                if (st.control == "addf") {
+                    float w = v + st.add;
+                    std::memcpy(&bits, &w, 4);
+                    kernel::W32(at, bits);
+                }
+                LOGR("pad script: %s %s [%08X] %.3f%s", st.control.c_str(), st.key.c_str(), at, v,
+                     st.control == "addf" ? (" -> " + std::to_string(v + st.add)).c_str() : "");
+            } else {
+                LOGR("pad script: %s %s: null pointer", st.control.c_str(), st.key.c_str());
+            }
+        }
         // "memdump <tag>": the image's data, 0x2E0000 up to its end, into <XBE_CAPTURE_DIR or captures>\mem_<tag>.bin
         // as (va, size, bytes) blocks, for scripts/memdiff.py and finding the game's variables
         if (st.control == "memdump" && now >= st.at && i >= dumped) {
@@ -130,10 +169,21 @@ void ScriptPad(int port, input::Pad& pad) {
             const char* dir = std::getenv("XBE_CAPTURE_DIR");
             std::string path = std::string(dir ? dir : "captures") + "\\mem_" + st.key + ".bin";
             if (FILE* f = std::fopen(path.c_str(), "wb")) {
-                const uint32_t va = 0x2E0000, end = 0x53A8A0, size = end - va;
-                std::fwrite(&va, 4, 1, f);
-                std::fwrite(&size, 4, 1, f);
-                std::fwrite(kernel::g_base + va, 1, size, f);
+                // "memdump <tag> 1": every committed page of the 64 MB instead, the heap's objects too
+                const uint32_t lo = st.value == 1 ? 0x10000 : 0x2E0000, hi = st.value == 1 ? 0x4000000 : 0x53A8A0;
+                for (uint32_t va = lo; va < hi;) {
+                    if (st.value == 1 && !mem::IsCommitted(va)) {
+                        va += 0x1000;
+                        continue;
+                    }
+                    uint32_t end = va;
+                    while (end < hi && (st.value != 1 || mem::IsCommitted(end))) end = std::min(hi, end + 0x1000);
+                    uint32_t size = end - va;
+                    std::fwrite(&va, 4, 1, f);
+                    std::fwrite(&size, 4, 1, f);
+                    std::fwrite(kernel::g_base + va, 1, size, f);
+                    va = end;
+                }
                 std::fclose(f);
                 LOGR("pad script: memory to %s", path.c_str());
             }
