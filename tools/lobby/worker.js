@@ -4,14 +4,18 @@
 // kTtlMs, and an object Cloudflare unloads starts empty and refills from the next check-ins.
 //
 // API, plain text (the game reads it with a few lines of C++):
-//   POST /v1/host?game=G&ver=V&addr=IP:PORT    list (or refresh) this game; answers "ok <your address>"
+//   POST /v1/host?game=G&ver=V&addr=IP:PORT    list (or refresh) this game; answers "ok <your address>", then
+//                                              "searcher IP:PORT" per PC searching (the host's game announces itself
+//                                              by broadcast and does not answer searches, so it is told who searches)
 //   POST /v1/unhost?game=G&ver=V&addr=IP:PORT  take it off
-//   GET  /v1/list?game=G&ver=V                 "you <your address>", then "host IP:PORT" per game
+//   GET  /v1/list?game=G&ver=V[&addr=IP:PORT]  "you <your address>", then "host IP:PORT" per game; with addr the
+//                                              caller is searching at that address for a while
 // addr is where the host's System Link socket is reached from the internet (its public IPv4 and the port its router
 // maps, from STUN or UPnP). When the request itself arrives over IPv4, addr must carry that same address, so nobody can
 // list someone else's machine.
 
-const kTtlMs = 45000;
+const kTtlMs = 20000;        // a host checks in every 5 s
+const kSearchTtlMs = 15000;  // a searcher asks for the list every 4 s
 const kMaxHosts = 256;
 const kAddr = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})$/;
 
@@ -33,7 +37,8 @@ function parseAddr(s) {
 
 export class Lobby {
     constructor(state, env) {
-        this.hosts = new Map();  // "ip:port" -> {ver, seen}
+        this.hosts = new Map();      // "ip:port" -> {ver, seen}
+        this.searchers = new Map();  // "ip:port" -> {ver, seen}
     }
 
     async fetch(request) {
@@ -42,14 +47,18 @@ export class Lobby {
         const ver = url.searchParams.get('ver') || '';
         const now = Date.now();
         for (const [k, h] of this.hosts) if (now - h.seen > kTtlMs) this.hosts.delete(k);
+        for (const [k, h] of this.searchers) if (now - h.seen > kSearchTtlMs) this.searchers.delete(k);
+        const addr = parseAddr(url.searchParams.get('addr'));
+        if (addr && seen.includes('.') && seen !== addr.ip) return text('addr is not yours\n', 403);
         if (url.pathname === '/v1/list') {
+            // with addr, the caller is searching there: hosts' announcements are sent to it
+            if (addr && (this.searchers.has(addr.key) || this.searchers.size < kMaxHosts))
+                this.searchers.set(addr.key, {ver, seen: now});
             let out = `you ${seen}\n`;
             for (const [k, h] of this.hosts) if (h.ver === ver) out += `host ${k}\n`;
             return text(out);
         }
-        const addr = parseAddr(url.searchParams.get('addr'));
         if (!addr) return text('bad addr\n', 400);
-        if (seen.includes('.') && seen !== addr.ip) return text('addr is not yours\n', 403);
         if (url.pathname === '/v1/unhost') {
             this.hosts.delete(addr.key);
             return text(`ok ${seen}\n`);
@@ -57,7 +66,9 @@ export class Lobby {
         if (url.pathname === '/v1/host') {
             if (!this.hosts.has(addr.key) && this.hosts.size >= kMaxHosts) return text('full\n', 503);
             this.hosts.set(addr.key, {ver, seen: now});
-            return text(`ok ${seen}\n`);
+            let out = `ok ${seen}\n`;
+            for (const [k, h] of this.searchers) if (h.ver === ver && k !== addr.key) out += `searcher ${k}\n`;
+            return text(out);
         }
         return text('not found\n', 404);
     }

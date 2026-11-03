@@ -58,6 +58,9 @@ struct Socket {
     bool udp = false;
     bool nonblocking = false;  // the guest's FIONBIO; the host socket is always nonblocking
     uint16_t port = 0;         // bound, network order
+    // mechassault-recomp patch: the address it was bound to and the options set on it, to make it again (Rebind)
+    sockaddr_in bound{};
+    std::vector<std::pair<std::pair<int, int>, std::string>> options;
 };
 
 struct Span {
@@ -107,6 +110,13 @@ bool Private(uint32_t a) {
 }
 
 uint64_t NatKey(uint32_t address, uint16_t port) { return uint64_t(address) << 16 | port; }
+
+// mechassault-recomp patch: XBE_NO_LAN=1 (tests) keeps broadcasts off the LAN and the other loopback copies, so
+// only the join address and the games listed online hear a search; peers on loopback then count as remote ones
+bool NoLan() {
+    static const bool on = std::getenv("XBE_NO_LAN") != nullptr;
+    return on;
+}
 
 // mechassault-recomp patch: XBE_NETLOG=1 logs every datagram and connection (Info)
 bool NetLog() {
@@ -282,7 +292,7 @@ int Recv(uint32_t sock, SOCKET s, const std::vector<Span>& spans, uint32_t from,
     if (NetLog()) LOGR("xnet: %X got %d from %s", sock, n, Addr(src).c_str());
     uint32_t peer = src.sin_addr.s_addr;
     LearnXnAddr(peer, buf.data(), n);
-    if (peer != g_local && !Private(peer)) {
+    if (peer != g_local && (!Private(peer) || NoLan())) {
         if (g_remote.exchange(peer) != peer) LOGI("xnet: peer %s", Addr(src).c_str());
         auto it = g_sockets.find(sock);
         std::lock_guard<std::mutex> lock(g_nat_lock);
@@ -311,10 +321,16 @@ int SendOnce(SOCKET s, const uint8_t* data, int len, const sockaddr_in* to) {
             also.push_back(d);
             also.back().sin_addr.s_addr = join;
         }
-        // mechassault-recomp patch: a System Link search also asks the games listed online (xdk/online.h)
-        for (const online::Peer& h : online::Hosts()) {
+        // mechassault-recomp patch: a System Link search also reaches the games listed online, and a host's
+        // announcements the PCs searching online (xdk/online.h)
+        for (const online::Peer& h : online::Hosts(d.sin_port)) {
             also.push_back(d);
             also.back().sin_addr.s_addr = h.address;
+        }
+        for (const online::Peer& p : online::Searchers()) {
+            also.push_back(d);
+            also.back().sin_addr.s_addr = p.address;
+            also.back().sin_port = p.port;
         }
         {
             std::lock_guard<std::mutex> lock(g_nat_lock);
@@ -324,17 +340,16 @@ int SendOnce(SOCKET s, const uint8_t* data, int len, const sockaddr_in* to) {
                 if (auto it = g_nat.find(NatKey(peer, d.sin_port)); it != g_nat.end()) also.back().sin_port = it->second;
             }
         }
-        for (const sockaddr_in& a : also)
-            ::sendto(s, reinterpret_cast<const char*>(data), len, 0, reinterpret_cast<const sockaddr*>(&a), sizeof(a));
+        for (const sockaddr_in& a : also) {
+            int n = ::sendto(s, reinterpret_cast<const char*>(data), len, 0, reinterpret_cast<const sockaddr*>(&a), sizeof(a));
+            if (NetLog()) LOGR("xnet: broadcast copy %d of %d to %s", n, len, Addr(a).c_str());
+        }
     } else {
         std::lock_guard<std::mutex> lock(g_nat_lock);
         auto it = g_nat.find(NatKey(d.sin_addr.s_addr, d.sin_port));
         if (it != g_nat.end()) d.sin_port = it->second;
     }
-    // mechassault-recomp patch: XBE_NO_LAN=1 (tests) keeps broadcasts off the LAN and the other loopback copies, so
-    // only the join address and the games listed online hear a search
-    static const bool no_lan = std::getenv("XBE_NO_LAN") != nullptr;
-    if (no_lan && d.sin_addr.s_addr == INADDR_BROADCAST) return len;
+    if (NoLan() && d.sin_addr.s_addr == INADDR_BROADCAST) return len;
     if (g_instance && d.sin_addr.s_addr == INADDR_BROADCAST) {
         for (int i = 1; i <= kLoopbackInstances; i++) {
             if (i == g_instance) continue;
@@ -440,7 +455,8 @@ void HostingChanged() {
         if (k.udp && k.port) ports.push_back(k.port);
     std::sort(ports.begin(), ports.end(), [](uint16_t x, uint16_t y) { return ntohs(x) < ntohs(y); });
     ports.erase(std::unique(ports.begin(), ports.end()), ports.end());
-    online::Hosting(g_hosting, g_local, ports.empty() ? 0 : ports.front(), ports);
+    online::Ports(g_local, ports);
+    online::Hosting(g_hosting, ports.empty() ? 0 : ports.front());
 }
 
 void Random(uint32_t va, uint32_t n) {
@@ -647,6 +663,12 @@ HLE_STDCALL(ioctlsocket, 3) {
 HLE_STDCALL(setsockopt, 5) {
     Socket k = Find(a[0]);
     if (k.s == INVALID_SOCKET) return Fail(WSAENOTSOCK);
+    {
+        std::lock_guard<std::mutex> lock(g_lock);
+        if (auto it = g_sockets.find(a[0]); it != g_sockets.end())
+            it->second.options.push_back({{int(a[1]), int(a[2])}, std::string(static_cast<const char*>(HostPtr(a[3])),
+                                                                              size_t(a[4]))});
+    }
     if (::setsockopt(k.s, int(a[1]), int(a[2]), static_cast<const char*>(HostPtr(a[3])), int(a[4])) == 0) return 0;
     LOG_FIRST(10, "xnet: setsockopt %X level %X option %X ignored (%d)", a[0], a[1], a[2], WSAGetLastError());
     return 0;
@@ -669,6 +691,26 @@ HLE_STDCALL(getsockname, 3) {
     W32(a[2], sizeof(me));
     return 0;
 }
+// the socket made again on the same address with the same options (bind); with g_lock held
+static void Rebind(uint32_t id, Socket& k) {
+    SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (s == INVALID_SOCKET) return;
+    u_long on = 1;
+    ::ioctlsocket(s, FIONBIO, &on);
+    BOOL off = FALSE;
+    DWORD ret = 0;
+    WSAIoctl(s, kUdpConnReset, &off, sizeof(off), nullptr, 0, &ret, nullptr, nullptr);
+    for (auto& [opt, value] : k.options) ::setsockopt(s, opt.first, opt.second, value.data(), int(value.size()));
+    if (::bind(s, reinterpret_cast<const sockaddr*>(&k.bound), sizeof(k.bound)) != 0) {
+        LOGW("xnet: socket %X could not be bound again (%d)", id, WSAGetLastError());
+        ::closesocket(s);
+        return;
+    }
+    ::closesocket(k.s);
+    k.s = s;
+    LOGI("xnet: socket %X bound again behind a newer one on %s", id, Addr(k.bound).c_str());
+}
+
 HLE_STDCALL(bind, 3) {
     Socket k = Find(a[0]);
     if (k.s == INVALID_SOCKET) return Fail(WSAENOTSOCK);
@@ -684,8 +726,18 @@ HLE_STDCALL(bind, 3) {
     int len = sizeof(me);
     ::getsockname(k.s, reinterpret_cast<sockaddr*>(&me), &len);
     std::lock_guard<std::mutex> lock(g_lock);
-    if (auto it = g_sockets.find(a[0]); it != g_sockets.end()) it->second.port = me.sin_port;
-    if (g_hosting) HostingChanged();
+    if (auto it = g_sockets.find(a[0]); it != g_sockets.end()) {
+        it->second.port = me.sin_port;
+        it->second.bound = at;
+    }
+    // mechassault-recomp patch: Windows hands a datagram sent straight to a port two sockets share (SO_REUSEADDR) to
+    // the one bound first, where a broadcast reaches both. MechAssault's host binds its session socket on the System
+    // Link port its menu's socket already holds, and searches from the internet come straight to it, so the older
+    // sockets on the port are made again behind the new one: the newest gets them, as the session expects
+    for (auto& [id, other] : g_sockets)
+        if (id != a[0] && other.udp && other.port == me.sin_port && other.bound.sin_addr.s_addr == at.sin_addr.s_addr)
+            Rebind(id, other);
+    HostingChanged();
     return 0;
 }
 HLE_STDCALL(connect, 3) {

@@ -5,7 +5,8 @@ games: each host checks in every 15 seconds while it hosts, and a player's Syste
 asks those hosts directly, as it asks the LAN. Matches run between the players' PCs; nothing of the game goes through
 the service.
 
-It runs on Cloudflare Workers' free plan (100,000 requests a day, about 30 people hosting all day), with no server to
+It runs on Cloudflare Workers' free plan (100,000 requests a day: a host checks in every 5 seconds, so a few hosts all
+day or many evening sessions), with no server to
 rent or maintain.
 
 ## Put it online (once)
@@ -33,10 +34,11 @@ Plain text, described at the top of `worker.js`: `POST /v1/host`, `POST /v1/unho
 
 ## What players need
 
-- **Hosting**: a router with UPnP on (most home routers); the game opens its UDP ports on the router while it hosts and
-  closes them after. Without UPnP, forward UDP 1000 to 1002 to the hosting PC by hand. Windows Firewall asks once to
-  let MechAssault through.
-- **Joining**: nothing; the search itself opens the way back through the joiner's router.
+- **A router with UPnP on** (most home routers): the game opens its UDP ports 1000 to 1002 on the router while it hosts
+  or searches, and closes them a minute after. MechAssault's host announces its game by broadcast rather than
+  answering searches, so the host is told who is searching and sends its announcements to them too; a joiner's
+  router has to let those in. Without UPnP, forward UDP 1000 to 1002 to the PC by hand. Windows Firewall asks once
+  to let MechAssault through.
 - A player on a strict network (some mobile and carrier connections) cannot host for internet players; virtual LAN
   (Radmin VPN, ZeroTier, Tailscale) still works for them.
 - The switch is "Online games" on the setup screen (`online_games` in settings.toml), on by default. With it on, the

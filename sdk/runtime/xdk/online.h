@@ -16,16 +16,19 @@ struct Peer {
 
 // Settings::online_games is on and there is a list service to use
 bool Enabled();
-// the System Link session this PC hosts began or ended (or its game bound another port); port (network order) is
-// the one it is listed with, ports every UDP port its game has bound (opened on the router while it hosts); local is
-// this copy's LAN address, which a list service on this PC (tools/lobby/local_lobby.py, for tests with --instance
-// copies) lists instead of the public one
-void Hosting(bool on, uint32_t local, uint16_t port, const std::vector<uint16_t>& ports);
-// the listed games a System Link search (a broadcast) should also reach, at the port it is broadcast to: the last
-// list fetched (searching keeps it fresh), not this PC's own; none while this PC hosts (its broadcasts are its
-// answers to searches). A host's router forwards each of its game's ports to the same port, so one listed port
-// stands for them all.
-std::vector<Peer> Hosts();
+// the UDP ports (network order) this copy's game has bound, and its LAN address: opened on the router while it hosts or
+// searches; a list service on this PC (tools/lobby/local_lobby.py, for tests with --instance copies) lists the LAN
+// address instead of the public one
+void Ports(uint32_t local, const std::vector<uint16_t>& ports);
+// the System Link session this PC hosts began or ended; port (network order) is the one it is listed with
+void Hosting(bool on, uint16_t port);
+// a System Link search broadcast to this port (network order): the listed games it should also reach, from the last
+// list fetched (searching keeps it fresh and lists this PC as searching, at that port); none while this PC hosts (its
+// broadcasts are its game's announcements)
+std::vector<Peer> Hosts(uint16_t port);
+// while this PC hosts: the PCs searching online that its game's announcements should also reach (MechAssault's host
+// announces its game by broadcast and does not answer searches, so a searcher past the LAN has to be told of)
+std::vector<Peer> Searchers();
 // this PC's public IPv4 address as the list service sees it, network order; 0 while unknown
 uint32_t PublicAddress();
 // at startup: ask the list service once, so the public address is known by the time System Link needs it

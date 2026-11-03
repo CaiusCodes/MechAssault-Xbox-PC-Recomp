@@ -1,7 +1,8 @@
 // mechassault-recomp patch: the game list client (online.h). One background thread talks to the list service over
 // HTTPS (WinHTTP) and opens the host's ports on the router (the Windows UPnP NAT API), so the game's threads never
 // wait on the network: a host checks in every kBeatMs while it hosts and is taken off when it stops; a search fetches
-// the list at most every kListMs while the game keeps searching.
+// the list at most every kListMs while the game keeps searching; a host's check-in answers with the PCs
+// searching, which its game's announcements also go to.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -41,9 +42,10 @@ namespace {
 constexpr const char* kDefaultLobby = "";
 constexpr const char* kGame = "ma1pc";
 constexpr const char* kVersion = "1";  // games of other versions are not listed to each other
-constexpr int kBeatMs = 15000;
+constexpr int kBeatMs = 5000;
 constexpr int kListMs = 4000;
-constexpr int kSearchMs = 6000;  // a search counts as going on this long after its last broadcast
+constexpr int kSearchMs = 6000;   // a search counts as going on this long after its last broadcast
+constexpr int kRouterMs = 60000;  // the router's ports close this long after the last hosting or searching
 
 using Clock = std::chrono::steady_clock;
 
@@ -53,11 +55,11 @@ bool g_started = false;
 // wanted state, set by the game's threads
 bool g_hosting = false;
 uint32_t g_local = 0;
-uint16_t g_port = 0;
+uint16_t g_port = 0, g_search_port = 0;
 std::vector<uint16_t> g_ports;
 Clock::time_point g_searched{};
 // what the thread has done
-std::vector<Peer> g_hosts;
+std::vector<Peer> g_hosts, g_searchers;
 std::string g_listed;  // the addr this PC is listed under, empty when it is not
 std::atomic<uint32_t> g_public{0};
 
@@ -204,7 +206,7 @@ void RouterPorts(const std::vector<uint16_t>& ports, uint32_t local, bool open) 
 
 void Thread() {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    Clock::time_point beat{}, listed{}, asked{};
+    Clock::time_point beat{}, listed{}, asked{}, active_at{};
     std::vector<uint16_t> opened;
     uint32_t opened_for = 0;
     std::unique_lock<std::mutex> lock(g_lock);
@@ -214,20 +216,22 @@ void Thread() {
         bool hosting = g_hosting && Enabled();
         bool searching = now - g_searched < std::chrono::milliseconds(kSearchMs) && Enabled();
         uint32_t local = g_local;
-        uint16_t port = g_port;
+        uint16_t port = g_port, search_port = g_search_port;
         std::vector<uint16_t> ports = g_ports;
         std::string url = Url();
         lock.unlock();
         bool local_lobby = LocalLobby(url);
-        // the router first, so the listed address answers by the time anyone finds it
-        if (hosting && !local_lobby) {
+        if (hosting || searching) active_at = now;
+        // the router first, so this PC answers by the time anyone finds it: a host's announcements and a searcher's
+        // replies both come back to the game's own ports
+        if ((hosting || searching) && !local_lobby) {
             std::vector<uint16_t> more;
             for (uint16_t p : ports)
                 if (std::find(opened.begin(), opened.end(), p) == opened.end()) more.push_back(p);
             RouterPorts(more, local, true);
             opened.insert(opened.end(), more.begin(), more.end());
             opened_for = local;
-        } else if (!hosting && !opened.empty()) {
+        } else if (!opened.empty() && now - active_at > std::chrono::milliseconds(kRouterMs)) {
             RouterPorts(opened, opened_for, false);
             opened.clear();
         }
@@ -247,15 +251,25 @@ void Thread() {
                 if (uint32_t a = Stun()) NotePublic(Ip(a));
         }
         uint32_t address = local_lobby ? local : g_public.load();
-        std::string addr = address ? Ip(address) + ":" + std::to_string(ntohs(port)) : "";
+        auto at = [&](uint16_t p) { return address ? Ip(address) + ":" + std::to_string(ntohs(p)) : std::string(); };
+        std::string addr = at(port);
+        std::vector<Peer> searchers;
+        bool beat_done = false;
         if (hosting && address && (addr != listed_as || now - beat > std::chrono::milliseconds(kBeatMs))) {
-            std::string body = Request(url, "POST", std::string("/v1/host?game=") + kGame + "&ver=" + kVersion +
-                                                         "&addr=" + addr);
+            std::istringstream in(Request(url, "POST", std::string("/v1/host?game=") + kGame + "&ver=" + kVersion +
+                                                           "&addr=" + addr));
             beat = now;
-            if (body.rfind("ok", 0) == 0) {
-                if (addr != listed_as) LOGI("online: your game is listed as %s", addr.c_str());
-                listed_as = addr;
+            std::string word, value;
+            while (in >> word >> value) {
+                Peer p{};
+                if (word == "ok") {
+                    if (addr != listed_as) LOGI("online: your game is listed as %s", addr.c_str());
+                    listed_as = addr;
+                } else if (word == "searcher" && Parse(value, p)) {
+                    searchers.push_back(p);
+                }
             }
+            beat_done = true;
         }
         if (!listed_as.empty() && (!hosting || addr != listed_as)) {
             Request(url, "POST", std::string("/v1/unhost?game=") + kGame + "&ver=" + kVersion + "&addr=" + listed_as);
@@ -264,9 +278,11 @@ void Thread() {
         }
         std::vector<Peer> hosts;
         bool got = false;
-        if (searching && now - listed > std::chrono::milliseconds(kListMs)) {
+        if (searching && !hosting && now - listed > std::chrono::milliseconds(kListMs)) {
             listed = now;
-            std::istringstream in(Request(url, "GET", std::string("/v1/list?game=") + kGame + "&ver=" + kVersion));
+            std::string me = search_port ? at(search_port) : "";
+            std::istringstream in(Request(url, "GET", std::string("/v1/list?game=") + kGame + "&ver=" + kVersion +
+                                                          (me.empty() ? "" : "&addr=" + me)));
             std::string word, value;
             while (in >> word >> value) {
                 Peer p{};
@@ -281,6 +297,11 @@ void Thread() {
             if (hosts.size() != g_hosts.size()) LOGI("online: %zu games listed", hosts.size());
             g_hosts = hosts;
         }
+        if (beat_done) {
+            if (searchers.size() != g_searchers.size()) LOGI("online: %zu players searching", searchers.size());
+            g_searchers = searchers;
+        }
+        if (!hosting) g_searchers.clear();
     }
 }
 
@@ -298,29 +319,38 @@ bool Enabled() {
     return app::Get().online_games;
 }
 
-void Hosting(bool on, uint32_t local, uint16_t port, const std::vector<uint16_t>& ports) {
+void Ports(uint32_t local, const std::vector<uint16_t>& ports) {
+    std::lock_guard<std::mutex> lock(g_lock);
+    g_local = local;
+    g_ports = ports;
+}
+
+void Hosting(bool on, uint16_t port) {
     if (on && !Enabled()) return;
     std::lock_guard<std::mutex> lock(g_lock);
-    if (on == g_hosting && (!on || (port == g_port && ports == g_ports))) return;
+    if (on == g_hosting && (!on || port == g_port)) return;
     g_hosting = on;
-    if (on) {
-        g_local = local;
-        g_port = port;
-        g_ports = ports;
-    }
+    if (on) g_port = port;
     Start();
     g_wake.notify_all();
 }
 
-std::vector<Peer> Hosts() {
+std::vector<Peer> Hosts(uint16_t port) {
     if (!Enabled()) return {};
     std::lock_guard<std::mutex> lock(g_lock);
     if (g_hosting) return {};
     bool fresh = Clock::now() - g_searched > std::chrono::milliseconds(kSearchMs);
     g_searched = Clock::now();
+    g_search_port = port;
     Start();
     if (fresh) g_wake.notify_all();
     return g_hosts;
+}
+
+std::vector<Peer> Searchers() {
+    if (!Enabled()) return {};
+    std::lock_guard<std::mutex> lock(g_lock);
+    return g_hosting ? g_searchers : std::vector<Peer>{};
 }
 
 uint32_t PublicAddress() { return g_public.load(); }
