@@ -1,13 +1,12 @@
 # MechAssault PC online game list
 
 The game's System Link menu finds games hosted over the internet through this small list service. It only lists
-games: each host checks in every 15 seconds while it hosts, and a player's System Link search fetches the list and
-asks those hosts directly, as it asks the LAN. Matches run between the players' PCs; nothing of the game goes through
-the service.
+games: each host checks in every 5 seconds while it hosts and hears who is searching, and a player's System Link
+search fetches the list. The game's own screens do the rest, as on a LAN. Matches run between the players' PCs; nothing
+of the game goes through the service.
 
-It runs on Cloudflare Workers' free plan (100,000 requests a day: a host checks in every 5 seconds, so a few hosts all
-day or many evening sessions), with no server to
-rent or maintain.
+It runs on Cloudflare Workers' free plan (100,000 requests a day: enough for a few hosts all day, or many evening
+sessions), with no server to rent or maintain.
 
 ## Put it online (once)
 
