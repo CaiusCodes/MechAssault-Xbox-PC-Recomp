@@ -14,7 +14,8 @@ First start
        folders beside it).
    It is checked on the spot: MechAssault (USA, Europe) is the release this version supports. Your own image or
    folder is only read, never changed.
-4. Tick the extras you want (fullscreen, a desktop shortcut, mouse aim, deleting the compiler afterwards) and
+4. Tick the extras you want (fullscreen, a desktop shortcut, mouse aim, unlocking the whole campaign, deleting the
+   compiler afterwards; mouse aim and the campaign unlock can be changed later in F1) and
    press Play.
 5. The Prepare tab copies the game into resources\game and builds the game code for your PC from your copy (about a
    minute; this happens once). Then the Play tab shows your setup and the controls: press Play.
