@@ -52,6 +52,7 @@ struct Settings {
     std::string monitor;  // mechassault-recomp patch: the display the game is shown on (its device name), empty: main
     bool hud_edges = true;  // mechassault-recomp patch: widescreen HUD pieces at the screen's sides (d3d12 HudShift)
     std::string lan_adapter;  // mechassault-recomp patch: System Link's adapter (its IPv4 address), empty: automatic
+    uint32_t language = 1;    // mechassault-recomp patch: the console language the title is told (XC_LANGUAGE, 1 English)
 };
 // mechassault-recomp patch: the displays to choose from (Settings::monitor), and the chosen one (an HMONITOR: the
 // setting's display if it is connected, else the window's)
@@ -203,6 +204,12 @@ struct GameInfo {
         bool* flag;
     };
     std::vector<Extra> extras = {};
+    // mechassault-recomp patch: the languages the title has, for the setup and Settings::language (XC_LANGUAGE values)
+    struct Language {
+        const wchar_t* name;
+        uint32_t xc;
+    };
+    std::vector<Language> languages = {};
     const wchar_t* controls = nullptr;
     const wchar_t* platform_line = nullptr;  // under the installer's buttons, e.g. the title ID
 };

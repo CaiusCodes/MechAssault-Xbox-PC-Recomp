@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <thread>
@@ -44,26 +45,29 @@ namespace {
 
 namespace fs = std::filesystem;
 
-// the game's own colours: blood red on near black
-constexpr COLORREF kPage = RGB(14, 12, 12);
-constexpr COLORREF kFooter = RGB(11, 9, 9);
-constexpr COLORREF kCard = RGB(21, 17, 17);
-constexpr COLORREF kField = RGB(10, 8, 8);
-constexpr COLORREF kLine = RGB(58, 20, 22);
-constexpr COLORREF kLineHi = RGB(110, 28, 32);
-constexpr COLORREF kFieldLine = RGB(58, 42, 43);
-constexpr COLORREF kBlood = RGB(163, 18, 28);
-constexpr COLORREF kBloodHi = RGB(212, 42, 47);
-constexpr COLORREF kBone = RGB(236, 232, 228);
-constexpr COLORREF kAsh = RGB(156, 145, 141);
-constexpr COLORREF kSteel = RGB(201, 198, 194);
-constexpr COLORREF kGoodText = RGB(233, 183, 180);
+// mechassault-recomp patch: MechAssault's look ("red glow", chosen by j from the mockups): the logo's dark red on
+// near black with chrome-grey text, a white title, and a soft red glow under the active tab and around Play
+constexpr COLORREF kPage = RGB(9, 9, 10);
+constexpr COLORREF kFooter = RGB(9, 9, 11);
+constexpr COLORREF kCard = RGB(20, 20, 23);
+constexpr COLORREF kField = RGB(9, 9, 11);
+constexpr COLORREF kLine = RGB(44, 45, 50);
+constexpr COLORREF kLineHi = RGB(90, 26, 31);
+constexpr COLORREF kFieldLine = RGB(52, 53, 59);
+constexpr COLORREF kBlood = RGB(142, 24, 32);
+constexpr COLORREF kBloodHi = RGB(200, 50, 58);
+constexpr COLORREF kGlow = RGB(224, 70, 78);
+constexpr COLORREF kBone = RGB(228, 228, 231);
+constexpr COLORREF kWhite = RGB(255, 255, 255);
+constexpr COLORREF kAsh = RGB(154, 155, 161);
+constexpr COLORREF kSteel = RGB(216, 216, 220);
+constexpr COLORREF kGoodText = RGB(216, 216, 220);
 constexpr COLORREF kBad = RGB(240, 130, 110);
-constexpr COLORREF kOff = RGB(93, 74, 75);
-constexpr COLORREF kButton = RGB(29, 21, 22);
-constexpr COLORREF kButtonHover = RGB(48, 33, 35);
-constexpr COLORREF kButtonLine = RGB(74, 49, 51);
-constexpr COLORREF kBoxOff = RGB(90, 58, 60);
+constexpr COLORREF kOff = RGB(85, 86, 92);
+constexpr COLORREF kButton = RGB(28, 29, 33);
+constexpr COLORREF kButtonHover = RGB(42, 43, 48);
+constexpr COLORREF kButtonLine = RGB(69, 70, 77);
+constexpr COLORREF kBoxOff = RGB(85, 86, 92);
 
 constexpr UINT kInspected = WM_APP + 10, kImported = WM_APP + 11, kBuilt = WM_APP + 12;
 constexpr int kWidth = 660, kHeight = 700;  // client, at 96 DPI
@@ -85,6 +89,7 @@ enum Hit {
     kExtraFullscreen,
     kExtraShortcut,
     kExtraDelete,
+    kLanguage,   // mechassault-recomp patch: GameInfo::languages, a click steps to the next
     kExtraGame,  // GameInfo::extras from here
 };
 
@@ -123,6 +128,7 @@ struct State {
     // the extras
     bool fullscreen = true, shortcut = true, delete_compiler = false;
     std::vector<bool> game_extras;
+    size_t language = 0;  // mechassault-recomp patch: index in GameInfo::languages
     uint64_t compiler_bytes = 0;
     bool shortcut_made = false;
 
@@ -188,6 +194,28 @@ void Box(HDC dc, const RECT& r, COLORREF fill, COLORREF line) {
     Frame(dc, r, line);
 }
 
+// mechassault-recomp patch: a and b mixed, f of b
+COLORREF Mix(COLORREF a, COLORREF b, float f) {
+    auto ch = [&](int x, int y) { return BYTE(std::lround(x + (y - x) * f)); };
+    return RGB(ch(GetRValue(a), GetRValue(b)), ch(GetGValue(a), GetGValue(b)), ch(GetBValue(a), GetBValue(b)));
+}
+// a glow rising from the bottom of r over the ground colour: strongest at the bottom edge, gone at the top
+void GlowUp(HDC dc, const RECT& r, COLORREF ground, COLORREF c, float strength) {
+    int h = r.bottom - r.top;
+    for (int i = 0; i < h; i++) {
+        float f = float(i + 1) / float(h);
+        Fill(dc, {r.left, r.top + i, r.right, r.top + i + 1}, Mix(ground, c, strength * f * f));
+    }
+}
+// a halo around r over the ground colour, fading out over radius pixels
+void Halo(HDC dc, const RECT& r, COLORREF ground, COLORREF c, int radius, float strength) {
+    for (int d = radius; d >= 1; d--) {
+        float f = 1.0f - float(d) / float(radius + 1);
+        RECT o{r.left - d, r.top - d, r.right + d, r.bottom + d};
+        Frame(dc, o, Mix(ground, c, strength * f * f));
+    }
+}
+
 // a line of text, letter spaced (tenths of a pixel) for the display type; returns its width
 int Text(HDC dc, RECT r, const std::wstring& t, HFONT font, COLORREF c, UINT flags = DT_LEFT, int spacing = 0) {
     HGDIOBJ old = SelectObject(dc, font);
@@ -250,6 +278,21 @@ int Check(HDC dc, int id, int x, int y, int right, bool on, const std::wstring& 
     Text(dc, {tx, y, right, y + S(22)}, label, g->fonts.body, enabled ? kBone : kAsh);
     int h = S(22);
     if (!detail.empty()) h += Paragraph(dc, {tx, y + S(21), right, y + S(60)}, detail, g->fonts.caption, kAsh);
+    if (enabled) AddHit(id, {x, y, right, y + h});
+    return h;
+}
+
+// mechassault-recomp patch: a choice row lined up with the extras: the label, a line under it, and the value in a box
+// at the right that steps to the next one when clicked
+int Choice(HDC dc, int id, int x, int y, int right, const std::wstring& label, const std::wstring& value,
+           const std::wstring& detail, bool enabled) {
+    int tx = x + S(18) + S(12);
+    RECT v{right - S(150), y - S(2), right, y + S(30)};
+    Box(dc, v, kField, g->hover == id && enabled ? kBloodHi : kButtonLine);
+    Text(dc, v, L"‹  " + value + L"  ›", g->fonts.bold, enabled ? kWhite : kAsh, DT_CENTER);
+    Text(dc, {tx, y, v.left - S(12), y + S(22)}, label, g->fonts.body, enabled ? kBone : kAsh);
+    int h = S(22);
+    if (!detail.empty()) h += Paragraph(dc, {tx, y + S(21), v.left - S(12), y + S(60)}, detail, g->fonts.caption, kAsh);
     if (enabled) AddHit(id, {x, y, right, y + h});
     return h;
 }
@@ -355,7 +398,7 @@ void PaintGame(HDC dc, int x, int y, int right) {
 
     Label(dc, x, y, right, L"Optional extras · applied when you press Play");
     top = y;
-    int rows = 3 + int(kGame.extras.size());
+    int rows = 3 + int(kGame.extras.size()) + (kGame.languages.empty() ? 0 : 1);
     h = S(16) + rows * S(46) - S(4);
     Box(dc, {x, top, right, top + h}, kCard, kLineHi);
     cy = top + S(14);
@@ -368,6 +411,11 @@ void PaintGame(HDC dc, int x, int y, int right) {
     for (size_t i = 0; i < kGame.extras.size(); i++) {
         Check(dc, int(kExtraGame + int(i)), in, cy, inr, g->game_extras[i], kGame.extras[i].label,
               kGame.extras[i].detail ? kGame.extras[i].detail : L"", can);
+        cy += S(46);
+    }
+    if (!kGame.languages.empty()) {
+        Choice(dc, kLanguage, in, cy, inr, L"Language", kGame.languages[g->language].name,
+               L"The game's text and speech. Change it any time in the settings (F1).", can);
         cy += S(46);
     }
     std::wstring freed =
@@ -456,12 +504,12 @@ void Paint(HDC dc, const RECT& client) {
     SetBkMode(dc, TRANSPARENT);
     int x = S(28), right = client.right - S(28);
 
-    // the header: a red rule, the icon, the name, what this is
+    // the header: a red rule, the icon, the name in white, what this is
     Fill(dc, {0, 0, client.right, S(3)}, kBlood);
     if (g->icon) DrawIconEx(dc, x, S(26), g->icon, S(42), S(42), 0, nullptr, DI_NORMAL);
     int tx = x + S(56);
-    Text(dc, {tx, S(20), right, S(58)}, Upper(Wide(g->profile->name)), g->fonts.title, kSteel, DT_LEFT, 22);
-    Text(dc, {tx, S(56), right, S(74)}, L"XBOX PC PORT  ·  SETUP", g->fonts.mono, kBloodHi, DT_LEFT, 14);
+    Text(dc, {tx, S(20), right, S(58)}, Upper(Wide(g->profile->name)), g->fonts.title, kWhite, DT_LEFT, 22);
+    Text(dc, {tx, S(56), right, S(74)}, L"XBOX PC PORT  ·  SETUP", g->fonts.mono, kAsh, DT_LEFT, 14);
 
     // the tabs: Game any time it is not working, the others once there is something on them
     int ty = S(96), th = S(36);
@@ -471,7 +519,8 @@ void Paint(HDC dc, const RECT& client) {
         RECT r{x + i * w, ty, x + (i + 1) * w, ty + th};
         bool on = int(g->tab) == i;
         bool reach = !Busy() && (i == 0 || g->step == Step::Ready);
-        COLORREF c = on ? kBone : reach && g->hover == kTabGame + i ? kSteel : reach ? kAsh : kOff;
+        COLORREF c = on ? kWhite : reach && g->hover == kTabGame + i ? kSteel : reach ? kAsh : kOff;
+        if (on) GlowUp(dc, r, kPage, kBloodHi, 0.30f);
         int tw = Text(dc, r, names[i], g->fonts.tab, c, DT_CENTER, 18);
         if (on) {
             int cx = (r.left + r.right) / 2;
@@ -500,9 +549,10 @@ void Paint(HDC dc, const RECT& client) {
     Fill(dc, {0, fy, client.right, fy + 1}, kLine);
     RECT play{right - S(176), fy + S(16), right, fy + S(60)};
     bool can = CanPlay();
+    if (can) Halo(dc, play, kFooter, kBloodHi, S(12), g->hover == kPlay ? 0.75f : 0.55f);
     Fill(dc, play, can ? (g->hover == kPlay ? kBloodHi : kBlood) : kButton);
-    Frame(dc, play, can ? kBloodHi : kFieldLine);
-    Text(dc, play, L"PLAY", g->fonts.play, can ? kBone : kOff, DT_CENTER, 30);
+    Frame(dc, play, can ? kGlow : kFieldLine);
+    Text(dc, play, L"PLAY", g->fonts.play, can ? kWhite : kOff, DT_CENTER, 30);
     if (can) AddHit(kPlay, play);
     RECT close{play.left - S(12) - S(104), play.top, play.left - S(12), play.bottom};
     Button(dc, kClose, close, Busy() && g->step != Step::Checking ? L"Stop" : L"Close", g->step != Step::Checking);
@@ -625,6 +675,7 @@ void ApplyExtras() {
     if (!g->fullscreen) s.display_mode = DisplayMode::Windowed;
     else if (s.display_mode == DisplayMode::Windowed) s.display_mode = DisplayMode::Borderless;
     for (size_t i = 0; i < kGame.extras.size(); i++) *kGame.extras[i].flag = g->game_extras[i];
+    if (!kGame.languages.empty()) s.language = kGame.languages[g->language].xc;
     Save();
     if (g->shortcut && !g->shortcut_made) g->shortcut_made = MakeShortcut();
     LOGR("Setup: extras: %s, shortcut %d, delete compiler %d", g->fullscreen ? "fullscreen" : "windowed",
@@ -703,6 +754,7 @@ void Toggle(int id) {
     if (g->step == Step::Ready) return;  // the rest were applied
     if (id == kExtraFullscreen) g->fullscreen = !g->fullscreen;
     else if (id == kExtraShortcut) g->shortcut = !g->shortcut;
+    else if (id == kLanguage && !kGame.languages.empty()) g->language = (g->language + 1) % kGame.languages.size();
     else if (id >= kExtraGame && size_t(id - kExtraGame) < g->game_extras.size())
         g->game_extras[size_t(id - kExtraGame)] = !g->game_extras[size_t(id - kExtraGame)];
 }
@@ -872,6 +924,8 @@ bool RunSetup(const gameimport::Profile& profile, GameFiles& game, bool have_gam
     state.fullscreen = Get().display_mode != DisplayMode::Windowed && !SetupTest();
     if (SetupTest()) state.shortcut = false;  // mechassault-recomp patch
     for (const auto& e : kGame.extras) state.game_extras.push_back(*e.flag);
+    for (size_t i = 0; i < kGame.languages.size(); i++)
+        if (kGame.languages[i].xc == Get().language) state.language = i;
     state.compiler_bytes = CompilerFolderBytes();
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     input::Init();
@@ -889,7 +943,9 @@ bool RunSetup(const gameimport::Profile& profile, GameFiles& game, bool have_gam
     state.icon = HICON(LoadImageW(inst, MAKEINTRESOURCEW(1), IMAGE_ICON, S(42), S(42), LR_DEFAULTCOLOR));
     MakeFonts();
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    RECT r{0, 0, S(kWidth), S(kHeight)};
+    // mechassault-recomp patch: taller by a row for each extra past the four the layout was drawn for
+    int rows = 3 + int(kGame.extras.size()) + (kGame.languages.empty() ? 0 : 1);
+    RECT r{0, 0, S(kWidth), S(kHeight + 46 * std::max(0, rows - 4))};
     AdjustWindowRectExForDpi(&r, style, FALSE, WS_EX_ACCEPTFILES, state.dpi);
     int w = r.right - r.left, h = r.bottom - r.top;
     HWND hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, cls.c_str(), (std::wstring(kGame.title) + L" setup").c_str(), style,

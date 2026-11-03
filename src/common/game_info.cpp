@@ -33,6 +33,17 @@ void GameMenu() {
             app::Save();
         }
         ImGui::TextDisabled("Of the game's own view, for every camera including cutscenes; 100%% is the original.");
+        // the console language the game is told; it reads it as it starts
+        static const std::pair<const char*, uint32_t> kLanguages[] = {{"English", 1}, {"Franç" "ais", 4}, {"Deutsch", 3}};
+        int lang = 0;
+        for (int i = 0; i < 3; i++)
+            if (kLanguages[i].second == app::Get().language) lang = i;
+        const char* names[] = {kLanguages[0].first, kLanguages[1].first, kLanguages[2].first};
+        if (ImGui::Combo("Language", &lang, names, 3)) {
+            app::Get().language = kLanguages[lang].second;
+            app::Save();
+        }
+        ImGui::TextDisabled("Text and speech. Takes effect the next time the game starts.");
         if (ImGui::Checkbox("Unlock the whole campaign", &mechassault::g_unlock_campaign)) app::Save();
         ImGui::TextDisabled("Every mission and movie in the campaign's Select Mission, from the next visit to it. Your "
                             "profile keeps it once the game next saves (after a mission).");
@@ -79,6 +90,7 @@ const app::GameInfo app::kGame = {
                 &mechassault::g_mouse_aim},
                {L"Unlock the whole campaign", L"Every mission and movie playable from the mission select at once.",
                 &mechassault::g_unlock_campaign}},
+    .languages = {{L"English", 1}, {L"Français", 4}, {L"Deutsch", 3}},  // the disc's (En, Fr, De)
     .controls = L"Mouse aim · WASD move · Left click fire · Right click or Q cycle weapons · "
                 L"1 2 3 energy, ballistic, missile · Space jump jets · Shift defense · Esc pause",
     .platform_line = L"Original Xbox · Title ID 4D530017",

@@ -46,6 +46,17 @@ add_xbe_image(MechAssault default.xbe main.toml ${GAME_PARTITIONS} game)
 
 # mechassault-recomp: no icon resource yet (res/ is empty); the window uses the default icon
 
+# mechassault-recomp: the icon (res/mechassault.rc, drawn by scripts/icon/make_icon.py), with llvm-rc beside clang or rc.exe
+# through CMake's RC support; a build without a resource compiler still works, without the icon
+include(CheckLanguage)
+check_language(RC)
+if(CMAKE_RC_COMPILER)
+    enable_language(RC)
+    target_sources(MechAssault PRIVATE res/mechassault.rc)
+else()
+    message(WARNING "No resource compiler found: MechAssault.exe is built without its icon")
+endif()
+
 # mechassault-recomp: development builds. Relinking only the executable leaves MechAssault.dll older than it, and the
 # executable's first-start check (runtime/app/game_code.cpp) would then rebuild the DLL itself on every launch. Ninja
 # relinks the DLL after this whenever the executable's exports change, so marking it current here is safe.

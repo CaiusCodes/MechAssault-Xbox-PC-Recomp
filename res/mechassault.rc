@@ -1,0 +1,2 @@
+// the executable's icon: resource 1, which every window class of the runtime loads (scripts/icon/make_icon.py draws it)
+1 ICON "mechassault.ico"
