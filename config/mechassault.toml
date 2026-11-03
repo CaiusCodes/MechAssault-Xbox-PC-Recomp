@@ -83,6 +83,19 @@ BinkNextFrame             = 0x2CC660
 at = 0x39209
 call = "MechAssaultWidenProjection"
 
+# the culling frustum's planes, widened as the projection was (src/game/widescreen.cpp)
+[[hook]]
+at = 0x3829F
+call = "MechAssaultWidenCullSides"
+
+[[hook]]
+at = 0x383D6
+call = "MechAssaultWidenCullTops"
+
+[[hook]]
+at = 0x392B0
+call = "MechAssaultWidenCullDone"
+
 # Unlock the whole campaign (setup extra, F1 > Gameplay): fill in the profile's campaign progress as the campaign menu
 # opens, right after it loads the profile (0x895B0) (src/game/campaign.cpp)
 [[hook]]

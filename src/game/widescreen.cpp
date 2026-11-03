@@ -26,8 +26,17 @@ extern uint32_t g_fov_percent;
 }
 void MechAssaultSelfTest(X86Context& ctx, uint8_t* base);  // selftest.cpp
 
+// the camera this build widened, and by how much (tan of the half angles: x, y), for its culling planes below
+namespace {
+uint32_t g_cull_cam = 0;
+float g_cull_x = 1, g_cull_y = 1, g_cull_fov = 0;
+constexpr uint32_t kFov = 0x88;  // the camera's horizontal field of view at 4:3, degrees
+constexpr float kHalfDegree = 0.00872664626f;  // pi / 360: degrees to a half angle in radians
+}  // namespace
+
 void MechAssaultWidenProjection(X86Context& ctx, uint8_t* base) {
     MechAssaultSelfTest(ctx, base);
+    g_cull_cam = 0;
     // how often cameras are rebuilt (a setting change applies from the next one): with XBE_PERF, every 10 s
     static int builds = 0;
     static auto since = std::chrono::steady_clock::now();
@@ -56,6 +65,9 @@ void MechAssaultWidenProjection(X86Context& ctx, uint8_t* base) {
         kernel::W32(at(r * 4), std::bit_cast<uint32_t>(get(r * 4) / (k * f)));
         kernel::W32(at(r * 4 + 1), std::bit_cast<uint32_t>(get(r * 4 + 1) / f));
     }
+    g_cull_cam = ctx.ebx;
+    g_cull_x = k * f;
+    g_cull_y = f;
     static int logged = 0;
     if (logged++ < 4)
         LOGR("mechassault: camera x scale %.4f -> %.4f (view %.3f times 4:3, field of view %.0f%%)", xs, xs / (k * f), k,
@@ -64,4 +76,32 @@ void MechAssaultWidenProjection(X86Context& ctx, uint8_t* base) {
 
 namespace mechassault {
 uint32_t g_fov_percent = 100;  // settings.toml fov_percent, F1 > Gameplay
+}
+
+// The game culls with a frustum of its own, built right after the projection (0x381B0, the camera in ebx): its side
+// planes from the 4:3 horizontal field of view (+0x88, degrees, half of it in radians at 0x3829F and 0x38348), its top
+// and bottom ones from that times 1 / aspect (0x3847A). With the projection widened, scenery past the 4:3 edges was
+// culled and the sky showed through at the screen's sides. Three [[hook]]s (config/mechassault.toml) widen the angle
+// the planes read as the projection was widened, and put it back after: 0x3829F the sides (tan scaled by g_cull_x),
+// 0x383D6 the top and bottom (by g_cull_y, the field of view setting), 0x392B0 (back in the build) the game's own.
+void MechAssaultWidenCullSides(X86Context& ctx, uint8_t*) {
+    if (!g_cull_cam || ctx.ebx != g_cull_cam) return;
+    g_cull_fov = std::bit_cast<float>(kernel::R32(ctx.ebx + kFov));
+    float half = std::atan(std::tan(g_cull_fov * kHalfDegree) * g_cull_x);
+    kernel::W32(ctx.ebx + kFov, std::bit_cast<uint32_t>(half / kHalfDegree));
+}
+
+void MechAssaultWidenCullTops(X86Context& ctx, uint8_t*) {
+    if (!g_cull_cam || ctx.ebx != g_cull_cam || g_cull_fov == 0) return;
+    int32_t w = int32_t(kernel::R32(ctx.ebx + 0x9C)), h = int32_t(kernel::R32(ctx.ebx + 0xA0));
+    float aspect = h > 0 && w > 0 ? float(w) / float(h) : 4.0f / 3.0f;
+    float half = std::atan(std::tan(g_cull_fov / aspect * kHalfDegree) * g_cull_y);
+    kernel::W32(ctx.ebx + kFov, std::bit_cast<uint32_t>(half * aspect / kHalfDegree));
+}
+
+void MechAssaultWidenCullDone(X86Context& ctx, uint8_t*) {
+    if (g_cull_cam && ctx.ebx == g_cull_cam && g_cull_fov != 0)
+        kernel::W32(ctx.ebx + kFov, std::bit_cast<uint32_t>(g_cull_fov));
+    g_cull_fov = 0;
+    g_cull_cam = 0;
 }
