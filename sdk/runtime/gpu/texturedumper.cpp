@@ -592,6 +592,16 @@ uint64_t Key(const TextureDesc& d, const FormatInfo& fi, const uint8_t* guest, c
     uint32_t shape[] = {d.format, d.width, d.height};
     uint64_t key = Hash(guest, LevelSize(d, 0), Hash(shape, sizeof(shape)));
     if (palette) key = Hash(palette, kPaletteBytes, key);
+    // mechassault-recomp patch: XBE_KEYLOG=1 logs each texture's key once with its address and size, to find a
+    // texture's key from a frame capture's address
+    static const bool keylog = std::getenv("XBE_KEYLOG") != nullptr;
+    if (keylog) {
+        static std::mutex m;
+        static std::unordered_set<uint64_t> seen;
+        std::lock_guard l(m);
+        if (seen.insert(key).second)
+            LOGR("texture key %016llx at %08X %ux%u", (unsigned long long)key, d.data, d.width, d.height);
+    }
     return key ? key : 1;
 }
 

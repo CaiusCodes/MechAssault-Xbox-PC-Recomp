@@ -30,6 +30,7 @@
 namespace mechassault {
 bool InPlay();  // src/game/campaign.cpp: a mission is being played (not a menu or the pause menu)
 int PromptUnderCursor();  // src/game/prompts.cpp: the control whose button prompt is under the cursor, -1 none
+int MenuHover();          // src/game/prompts.cpp: the d-pad direction that walks a menu's highlight to the cursor
 }
 
 namespace mechassault {
@@ -219,6 +220,7 @@ bool Held(int c) {
     for (int s = 0; s < kSlots; s++) {
         uint8_t vk = g_bind[c][s];
         if (g_menu && (vk == VK_LBUTTON || vk == VK_RBUTTON)) continue;
+        if (!g_menu && (vk == kWheelUp || vk == kWheelDown)) continue;  // in play the wheel cycles weapons
         if (Down(vk)) return true;
     }
     return false;
@@ -236,6 +238,9 @@ void OnWheel(int delta) {
     int notches = g_wheel_rest / WHEEL_DELTA;
     g_wheel_rest -= notches * WHEEL_DELTA;
     if (!notches) return;
+    // mechassault-recomp patch: in play each notch is a Cycle Weapons press (LT, which only goes forward through the
+    // three weapon kinds): down one, up two, which comes back to the previous kind
+    if (!g_menu) notches = notches > 0 ? notches * 2 : notches;
     if ((notches > 0) != (g_wheel_queue > 0)) g_wheel_queue = 0;
     g_wheel_queue = std::clamp(g_wheel_queue + notches, -kMaxQueued, kMaxQueued);
     g_wheel_seen = notches > 0 ? 1 : -1;
@@ -312,6 +317,10 @@ void KeyboardPad(int port, input::Pad& pad) {
         else pad.analog[kA] = 0xFF;
     }
     if (g_menu && Down(VK_RBUTTON)) pad.analog[kB] = 0xFF;
+    // mechassault-recomp patch: the menus' highlight follows the mouse (src/game/prompts.cpp)
+    if (g_menu && !app::MenuOpen())
+        if (int h = MenuHover()) pad.buttons |= uint16_t(h < 0 ? 1u : 2u);  // d-pad up, down
+    if (!g_menu && WheelNow()) pad.analog[kLT] = 0xFF;
     // sticks: full deflection, only where the real pad is centred
     auto axis = [](int minus, int plus) { return int16_t((Held(plus) ? 32767 : 0) - (Held(minus) ? 32767 : 0)); };
     if (int16_t v = axis(kMoveLeft, kMoveRight)) pad.lx = v;

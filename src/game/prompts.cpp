@@ -1,4 +1,4 @@
-// Button prompts for the keyboard and mouse. With no controller connected, the game's A, B, Y, Start and Back icons
+// Button prompts for the keyboard and mouse. With no controller connected, the game's A, B, X, Y, Start and Back icons
 // (the textures its menus and popups draw beside "Select", "Back", "Continue", ...) are drawn as PC icons instead: A
 // and B as a mouse with its left or right button lit (in menus the left button selects and the right goes back,
 // src/common/keyboard_pad.cpp), the others as a keycap with the key bound to them. They are made here, in the port's
@@ -57,6 +57,7 @@ struct Prompt {
 constexpr Prompt kPrompts[] = {
     {0x97bdae0a07e49873ull, 0, Kind::MouseLeft, RGB(52, 190, 66)},    // A, green
     {0x53bd6254fd773d0full, 1, Kind::MouseRight, RGB(214, 40, 48)},   // B, red
+    {0x723f5cb16019f886ull, 2, Kind::Key, RGB(48, 120, 220)},         // X, blue (Delete; XBE_KEYLOG found it)
     {0xcab926a0e28d44f3ull, 3, Kind::Key, RGB(232, 180, 44)},         // Y, yellow
     {0xd768c661f535f683ull, 8, Kind::Key, RGB(200, 200, 206)},        // Start
     {0x95e58e0a5a9c1a44ull, 9, Kind::Key, RGB(200, 200, 206)},        // Back
@@ -249,15 +250,25 @@ void UpdatePrompts() {
 
 // the control of the prompt under the cursor (its icon, or the label beside it), -1 for none: a click there presses
 // that button (keyboard_pad.cpp)
-int PromptUnderCursor() {
+// the cursor in fractions of the game's picture, and the last frame's prompts; false when the window has none
+bool CursorOnPicture(float& nx, float& ny, gpu::PromptFrame& f) {
     HWND hwnd = static_cast<HWND>(app::Window());
     POINT pt;
     RECT client;
-    if (!hwnd || !GetCursorPos(&pt) || !ScreenToClient(hwnd, &pt) || !GetClientRect(hwnd, &client)) return -1;
-    gpu::PromptFrame f = gpu::Prompts();
-    if (f.w <= 0 || f.h <= 0 || client.right <= 0 || client.bottom <= 0) return -1;
+    if (!hwnd || !GetCursorPos(&pt) || !ScreenToClient(hwnd, &pt) || !GetClientRect(hwnd, &client)) return false;
+    f = gpu::Prompts();
+    if (f.w <= 0 || f.h <= 0 || client.right <= 0 || client.bottom <= 0) return false;
     float bx = float(pt.x) * f.bw / float(client.right), by = float(pt.y) * f.bh / float(client.bottom);
-    float nx = (bx - f.x) / f.w, ny = (by - f.y) / f.h;
+    nx = (bx - f.x) / f.w;
+    ny = (by - f.y) / f.h;
+    return true;
+}
+
+int PromptUnderCursor() {
+    float nx, ny;
+    gpu::PromptFrame f;
+    if (!CursorOnPicture(nx, ny, f)) return -1;
+    std::erase_if(f.rects, [](const gpu::PromptRect& r) { return r.key == gpu::kPromptHighlight; });
     auto control = [](uint64_t key) {
         for (const Prompt& p : kPrompts)
             if (p.key == key) return p.control;
@@ -275,6 +286,54 @@ int PromptUnderCursor() {
         if (nx > r.x1 && nx < end && ny >= r.y0 && ny <= r.y1) return control(r.key);
     }
     return -1;
+}
+
+// Menus follow the mouse: while the cursor moves over a menu's list (beside the highlight bar the game draws behind
+// the chosen item), d-pad presses walk the bar to the item under it, one press every kPeriod ms held kHold ms. A
+// press the bar does not follow, or one that sends it the other way (a list wrapping round past its end), stops the
+// walk until the mouse moves again. Returns the d-pad direction to hold this poll: -1 up, 1 down, 0 none.
+int MenuHover() {
+    constexpr ULONGLONG kHold = 60, kPeriod = 140, kActive = 1500;
+    static POINT last{};
+    static ULONGLONG active_until = 0, pressed_at = 0;
+    static int dir = 0, stalls = 0;
+    static float bar_at = 0;
+    ULONGLONG now = GetTickCount64();
+    POINT pt;
+    if (GetCursorPos(&pt) && (std::abs(pt.x - last.x) > 2 || std::abs(pt.y - last.y) > 2)) {
+        last = pt;
+        active_until = now + kActive;
+        stalls = 0;
+    }
+    if (dir && now - pressed_at < kHold) return dir;  // the press being held
+    if (now > active_until || now - pressed_at < kPeriod) return 0;
+    float nx, ny;
+    gpu::PromptFrame f;
+    if (!CursorOnPicture(nx, ny, f)) return 0;
+    const gpu::PromptRect* bar = nullptr;
+    for (const gpu::PromptRect& r : f.rects)
+        if (r.key == gpu::kPromptHighlight) bar = &r;
+    if (!bar || nx < bar->x0 || nx > bar->x1) {
+        dir = 0;
+        return 0;
+    }
+    float mid = (bar->y0 + bar->y1) * 0.5f, half = (bar->y1 - bar->y0) * 0.3f;
+    if (dir) {  // what the last press did
+        float moved = mid - bar_at;
+        if (std::abs(moved) < 1e-4f ? ++stalls >= 2 : (moved > 0) != (dir > 0)) {
+            active_until = 0;
+            dir = 0;
+            return 0;
+        }
+    }
+    if (ny >= mid - half && ny <= mid + half) {
+        dir = 0;
+        return 0;
+    }
+    dir = ny < mid ? -1 : 1;
+    bar_at = mid;
+    pressed_at = now;
+    return dir;
 }
 
 }  // namespace mechassault

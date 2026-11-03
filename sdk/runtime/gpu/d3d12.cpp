@@ -1009,7 +1009,11 @@ private:
     bool hud_text_ = false;
     bool hud_play_ = false;  // in play: a frame drew 150+ 3D draws, and every frame since moved HUD pieces
     std::unordered_set<uint32_t> hud_sticky_;  // textures moved in play: they keep moving under a popup's text
+    // the HUD pieces moved this frame and the last: x0 y0 x1 y1 in target pixels, and the shift (text beside one
+    // moves with it: the ammo count by the weapon gauge)
+    std::vector<std::array<float, 5>> hud_rects_now_, hud_rects_last_;
     uint64_t bound0_key_ = 0;                  // the provided image stage 0 draws, if any (RecordPrompt)
+    bool bound0_bar_ = false;                  // stage 0 is MechAssault's menu highlight bar (RecordPrompt)
     std::vector<PromptRect> prompts_now_;      // this frame's prompt images, fractions of a 4:3 target
     bool gamma_ = false;
     Target* bound_rt_ = nullptr;
@@ -2224,6 +2228,8 @@ ID3D12Resource* D3D12Backend::BindGuestTexture(const State& s, int stage, const 
     if (tx.pack_key) LatchPackImage(tx);
     const Tex& drawn = tx.swap ? *tx.swap : tx;
     if (stage == 0) bound0_key_ = tx.swap ? tx.swap_key : 0;  // mechassault-recomp patch: RecordPrompt
+    // mechassault-recomp patch: the menus' highlight bar, a 512x64 DXT1 glow behind the chosen item (RecordPrompt)
+    if (stage == 0) bound0_bar_ = d.width == 512 && d.height == 64 && d.format == 0xC;
     FillTextureView(drawn, d, stages.sv[stage]);
     if (fi.depth) info.shadow = ShadowDepthKind(d.format);
     if (ext_) ext_->Sampled(d, nullptr, tx.flags, info);
@@ -2287,7 +2293,7 @@ void D3D12Backend::ReleasePackTextures() {
 }
 
 ID3D12Resource* D3D12Backend::BindTexture(const State& s, int stage, DrawTextures& stages) {
-    if (stage == 0) bound0_key_ = 0;
+    if (stage == 0) bound0_key_ = 0, bound0_bar_ = false;
     TexInfo& info = stages.info[stage];
     D3D12_SHADER_RESOURCE_VIEW_DESC& sv = stages.sv[stage];
     info = {};
@@ -2901,25 +2907,38 @@ float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
     auto last = hud_tex_last_.find(tex);
     uint32_t uses = last == hud_tex_last_.end() ? 1 : last->second;
     if (uses > 1) hud_text_ = true;
-    if (factor == 1.0f || uses > 1 || (hud_text_ && !hud_sticky_.count(tex)) || !hud_play_ || !app::Get().hud_edges ||
-        !size.w)
-        return 0;
+    if (factor == 1.0f || !hud_play_ || !app::Get().hud_edges || !size.w) return 0;
+    bool text = uses > 1 || (hud_text_ && !hud_sticky_.count(tex));
+    if (text && hud_rects_last_.empty()) return 0;
     const VertexElement& e = a.elements[0];
     const VertexBuffer& b = a.buffers[e.buffer];
     if (!b.src || !b.stride || e.format != DXGI_FORMAT_R32G32B32A32_FLOAT) return 0;
-    float lo = 1e30f, hi = -1e30f;
-    for (uint32_t off = e.offset; off + 4 <= b.bytes; off += b.stride) {
-        float x;
-        std::memcpy(&x, b.src + off, 4);
-        lo = std::min(lo, x);
-        hi = std::max(hi, x);
+    float lo = 1e30f, hi = -1e30f, top = 1e30f, bottom = -1e30f;
+    for (uint32_t off = e.offset; off + 8 <= b.bytes; off += b.stride) {
+        float p[2];
+        std::memcpy(p, b.src + off, 8);
+        lo = std::min(lo, p[0]);
+        hi = std::max(hi, p[0]);
+        top = std::min(top, p[1]);
+        bottom = std::max(bottom, p[1]);
     }
     float w = float(size.w);
     float out = 0.5f * w * (1.0f / factor - 1.0f);
     float shift = lo > 0.5f && hi <= 0.36f * w ? -out : hi < w - 0.5f && lo >= 0.64f * w ? out : 0.0f;
+    if (text) {
+        // text in the outer part only moves when it sits by a HUD piece moved last frame, on the same side (each
+        // glyph is a draw of its own, so a message box's text reaching that far would otherwise come apart)
+        if (shift == 0) return 0;
+        float reach = 0.08f * w;
+        for (const auto& r : hud_rects_last_)
+            if (r[4] == shift && lo < r[2] + reach && hi > r[0] - reach && top < r[3] + reach && bottom > r[1] - reach)
+                return shift;
+        return 0;
+    }
     if (shift != 0) {
         hud_moved_++;
         hud_sticky_.insert(tex);
+        hud_rects_now_.push_back({lo, top, hi, bottom, shift});
     }
     return shift;
 }
@@ -2928,8 +2947,8 @@ float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
 // the picture (after the widescreen squeeze and HudShift), for clicks on it (gpu/prompts.h)
 void D3D12Backend::RecordPrompt(GuestExtent size, const DrawConstants& c) {
     const Assembled& a = asm_;
-    if (!bound0_key_ || !a.pretransformed || !size.w || !size.h || size.w * 3 != size.h * 4) return;
-    if (!texturedumper::IsProvided(bound0_key_)) return;
+    if ((!bound0_key_ && !bound0_bar_) || !a.pretransformed || !size.w || !size.h || size.w * 3 != size.h * 4) return;
+    if (!bound0_bar_ && !texturedumper::IsProvided(bound0_key_)) return;
     const VertexElement& e = a.elements[0];
     const VertexBuffer& b = a.buffers[e.buffer];
     if (!b.src || !b.stride || e.format != DXGI_FORMAT_R32G32B32A32_FLOAT) return;
@@ -2944,7 +2963,8 @@ void D3D12Backend::RecordPrompt(GuestExtent size, const DrawConstants& c) {
     float w = float(size.w), h = float(size.h);
     float k = c.wide[0] > 0 ? c.wide[0] : 1.0f;
     auto squeeze = [&](float x) { return w * 0.5f + (x + c.wide[2] - w * 0.5f) * k; };
-    prompts_now_.push_back({bound0_key_, squeeze(x0) / w, y0 / h, squeeze(x1) / w, y1 / h});
+    prompts_now_.push_back(
+        {bound0_bar_ ? kPromptHighlight : bound0_key_, squeeze(x0) / w, y0 / h, squeeze(x1) / w, y1 / h});
 }
 
 void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const PsoKey& k, const DrawTextures& stages,
@@ -4194,6 +4214,8 @@ void D3D12Backend::Present(const Surface& front) {
     ResizeSwap();
     gpu::wide::SetView(app::WideView());  // breakdown-recomp patch: the next frame's draws
     hud_tex_last_.swap(hud_tex_now_);  // mechassault-recomp patch: HudShift's frame
+    hud_rects_last_.swap(hud_rects_now_);
+    hud_rects_now_.clear();
     hud_tex_now_.clear();
     hud_play_ = hud_3d_now_ >= 150 || (hud_play_ && hud_moved_);  // a paused game's popup keeps the HUD where it was
     {

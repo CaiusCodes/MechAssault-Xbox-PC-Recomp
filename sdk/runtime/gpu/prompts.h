@@ -7,6 +7,9 @@
 
 namespace gpu {
 
+// a menu's highlight bar (the chosen item), recorded among the prompts under this key
+constexpr uint64_t kPromptHighlight = 1;
+
 struct PromptRect {
     uint64_t key;
     float x0, y0, x1, y1;
