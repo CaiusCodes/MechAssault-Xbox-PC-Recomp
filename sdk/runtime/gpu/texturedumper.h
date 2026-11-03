@@ -45,4 +45,12 @@ void Dump(uint64_t key, const TextureDesc& d, const uint8_t* guest, const uint32
 // None: replacement off, no pack image for key, or its file did not load
 Lookup Take(uint64_t key, Image& out);
 
+// mechassault-recomp patch: images the game layer makes itself for some keys (button prompts drawn for the keyboard
+// and mouse), asked before the pack and whether or not the pack is on; false: the key is not one of them, or the
+// console's own image is wanted now. Invalidate after what it would answer changed: every texture asks again.
+using Provider = bool (*)(uint64_t key, Image& out);
+void SetProvider(Provider p);
+void Invalidate();
+bool IsProvided(uint64_t key);  // the provider's image is the one drawn for this key now
+
 }  // namespace gpu::texturedumper

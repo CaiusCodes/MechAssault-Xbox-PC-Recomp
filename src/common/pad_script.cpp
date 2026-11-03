@@ -18,6 +18,7 @@
 #include "core/input.h"
 #include "core/log.h"
 #include "gpu/backend.h"
+#include "gpu/prompts.h"
 #include "kernel/kernel.h"
 
 #include "app/app.h"
@@ -90,6 +91,14 @@ void ScriptPad(int port, input::Pad& pad) {
     for (size_t i = 0; i < steps.size(); i++) {
         const Step& st = steps[i];
         if (st.port != port) continue;
+        // "prompts": the last frame's button prompt rectangles, in the window's client pixels
+        if (st.control == "prompts" && now >= st.at && i >= dumped) {
+            dumped = i + 1;
+            gpu::PromptFrame f = gpu::Prompts();
+            for (const gpu::PromptRect& r : f.rects)
+                LOGR("prompt %016llX at %.0f,%.0f to %.0f,%.0f", (unsigned long long)r.key, f.x + r.x0 * f.w,
+                     f.y + r.y0 * f.h, f.x + r.x1 * f.w, f.y + r.y1 * f.h);
+        }
         if ((st.control == "dump" || st.control == "peek") && now >= st.at && i >= dumped) {
             dumped = i + 1;
             if (st.control == "dump") gpu::g_capture = true;

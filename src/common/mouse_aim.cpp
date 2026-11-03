@@ -26,6 +26,10 @@
 #endif
 
 namespace mechassault {
+bool InPlay();  // src/game/campaign.cpp
+}
+
+namespace mechassault {
 
 void OnWheel(int delta);  // keyboard_pad.cpp: the wheel as d-pad presses
 void BindingsMenu();      // keyboard_pad.cpp
@@ -163,7 +167,8 @@ bool MouseMessage(void* hwnd_, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t
     (void)result;
     switch (msg) {
         case WM_INPUT: {
-            bool want = g_mouse_aim && !app::MenuOpen() && GetForegroundWindow() == hwnd && !IsIconic(hwnd);
+            // mechassault-recomp patch: the cursor is free in the game's menus too, to click their prompts
+            bool want = g_mouse_aim && !app::MenuOpen() && InPlay() && GetForegroundWindow() == hwnd && !IsIconic(hwnd);
             if (!want) {
                 Release();
                 break;

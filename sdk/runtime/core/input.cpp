@@ -105,6 +105,12 @@ void Init() {
     }
 }
 
+// mechassault-recomp patch: a controller is plugged in (the button prompts follow it)
+bool AnyController() {
+    std::lock_guard lock(g_lock);
+    return std::any_of(std::begin(g_pads), std::end(g_pads), [](SDL_Gamepad* p) { return p != nullptr; });
+}
+
 Pad Poll(int port) {
     Pad p;
     {

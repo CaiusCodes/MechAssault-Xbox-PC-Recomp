@@ -15,6 +15,7 @@ void Init();  // window thread, before boot; the game code window starts it earl
 uint16_t HeldOnAnyController();  // face buttons as XINPUT_GAMEPAD_A/B/X/Y masks, GameInfo::pad left out
 // the controller on that port, then GameInfo::pad
 Pad Poll(int port);
+bool AnyController();  // mechassault-recomp patch: a real controller is connected
 void Rumble(int port, uint16_t left, uint16_t right);
 
 // breakdown-recomp patch: every controller at once, for the PC settings menu (overlay.cpp). Holding Back and pressing

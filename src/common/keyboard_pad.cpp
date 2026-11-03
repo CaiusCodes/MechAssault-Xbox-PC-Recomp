@@ -29,6 +29,7 @@
 
 namespace mechassault {
 bool InPlay();  // src/game/campaign.cpp: a mission is being played (not a menu or the pause menu)
+int PromptUnderCursor();  // src/game/prompts.cpp: the control whose button prompt is under the cursor, -1 none
 }
 
 namespace mechassault {
@@ -243,6 +244,27 @@ void OnWheel(int delta) {
 #endif
 }
 
+// the first key bound to a control (A 0, B 1, X 2, Y 3, Start 8, Back 9: Control's order) and its name, for the
+// button prompts (src/game/prompts.cpp); 0 and "" when unbound
+uint8_t BoundVk(int control) {
+#ifdef _WIN32
+    if (control < 0 || control >= kControls) return 0;
+    for (int s = 0; s < kSlots; s++)
+        if (uint8_t vk = g_bind[control][s]) return vk;
+#else
+    (void)control;
+#endif
+    return 0;
+}
+std::string BoundName(int control) {
+#ifdef _WIN32
+    return Name(BoundVk(control));
+#else
+    (void)control;
+    return "";
+#endif
+}
+
 void KeyboardPad(int port, input::Pad& pad) {
 #ifdef _WIN32
     if (port != 0) return;
@@ -277,7 +299,18 @@ void KeyboardPad(int port, input::Pad& pad) {
     // analog: A B X Y black white left trigger right trigger
     for (int i = 0; i < 8; i++)
         if (Held(kA + i)) pad.analog[i] = 0xFF;
-    if (g_menu && Down(VK_LBUTTON)) pad.analog[kA] = 0xFF;
+    // a click on a button prompt (the 2 of "2 'Mech Stats") presses that button; anywhere else it is A
+    static int clicked = -1;
+    static bool was_down = false;
+    bool down = Down(VK_LBUTTON);
+    if (g_menu && down && !was_down) clicked = PromptUnderCursor();
+    if (!down) clicked = -1;
+    was_down = down;
+    if (g_menu && down) {
+        if (clicked == kStart || clicked == kBack) pad.buttons |= uint16_t(1u << (4 + clicked - kStart));
+        else if (clicked >= kA && clicked <= kRT) pad.analog[clicked] = 0xFF;
+        else pad.analog[kA] = 0xFF;
+    }
     if (g_menu && Down(VK_RBUTTON)) pad.analog[kB] = 0xFF;
     // sticks: full deflection, only where the real pad is centred
     auto axis = [](int minus, int plus) { return int16_t((Held(plus) ? 32767 : 0) - (Held(minus) ? 32767 : 0)); };

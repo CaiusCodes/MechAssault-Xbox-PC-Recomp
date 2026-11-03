@@ -11,6 +11,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -542,16 +543,47 @@ bool UpdatePackFiles() {
 
 }  // namespace
 
+// mechassault-recomp patch: the game layer's images (SetProvider); a static, so it may be set before anything here
+std::atomic<Provider>& ProviderSlot() {
+    static std::atomic<Provider> slot{nullptr};
+    return slot;
+}
+std::atomic<bool>& ProviderChanged() {
+    static std::atomic<bool> changed{false};
+    return changed;
+}
+
+void SetProvider(Provider p) {
+    ProviderSlot() = p;
+    ProviderChanged() = true;
+}
+void Invalidate() { ProviderChanged() = true; }
+
+std::mutex& ProvidedLock() {
+    static std::mutex m;
+    return m;
+}
+std::unordered_set<uint64_t>& ProvidedKeys() {
+    static std::unordered_set<uint64_t> keys;
+    return keys;
+}
+bool IsProvided(uint64_t key) {
+    std::lock_guard l(ProvidedLock());
+    return ProvidedKeys().count(key) != 0;
+}
+
 bool Update() {
     bool changed = LatchSettings();
     bool reloaded = g.set.replacing && UpdatePackFiles();
+    // the provider's answers changed: the images made from them go, as after the pack's files changed
+    reloaded |= ProviderChanged().exchange(false);
     if (changed || reloaded) g.generation++;
     return reloaded;
 }
 
 uint32_t Generation() { return g.generation; }
 
-bool Replacing() { return g.set.replacing && !g.files.empty(); }
+bool Replacing() { return (g.set.replacing && !g.files.empty()) || ProviderSlot().load(); }
 
 uint64_t Key(const TextureDesc& d, const FormatInfo& fi, const uint8_t* guest, const uint32_t* palette) {
     if (!Replacing() && !g.set.dumping) return 0;
@@ -581,6 +613,15 @@ void Dump(uint64_t key, const TextureDesc& d, const uint8_t* guest, const uint32
 }
 
 Lookup Take(uint64_t key, Image& out) {
+    if (Provider p = ProviderSlot().load()) {
+        bool made = p(key, out);
+        std::lock_guard l(ProvidedLock());
+        if (made) {
+            ProvidedKeys().insert(key);
+            return Lookup::Ready;
+        }
+        ProvidedKeys().erase(key);
+    }
     auto file = g.files.find(key);
     if (!g.set.replacing || file == g.files.end()) return Lookup::None;
     uint32_t revision = 0;

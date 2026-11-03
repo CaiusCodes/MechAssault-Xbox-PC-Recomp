@@ -38,11 +38,22 @@
 #include "gpu/shaders.h"
 #include "gpu/texture.h"
 #include "gpu/texturedumper.h"
+#include "gpu/prompts.h"  // mechassault-recomp patch
 #include "gpu/vertex.h"
 #include "gpu/widescreen.h"  // breakdown-recomp patch
 #include "kernel/kernel.h"
 
 using Microsoft::WRL::ComPtr;
+
+namespace gpu {
+// mechassault-recomp patch: the last presented frame's prompt rectangles (gpu/prompts.h)
+std::mutex g_prompts_lock;
+PromptFrame g_prompts;
+PromptFrame Prompts() {
+    std::lock_guard l(g_prompts_lock);
+    return g_prompts;
+}
+}  // namespace gpu
 
 namespace gpu {
 
@@ -535,6 +546,7 @@ struct Tex {
     const Tex* swap = nullptr;  // the texture pack's image drawn in its place
     uint64_t pack_key = 0;      // its pack image is still loading
     uint32_t pack_gen = 0;      // texturedumper::Generation the key was taken at, 0 after new bytes
+    uint64_t swap_key = 0;      // mechassault-recomp patch: the key swap was made for
 };
 
 struct PsoKey {
@@ -768,6 +780,7 @@ private:
                          GuestExtent size, DrawConstants& c);
     void FillTextureConstants(const State& s, const DrawShaders& sh, const DrawTextures& stages, DrawConstants& c);
     float HudShift(const State& s, GuestExtent size, float factor);
+    void RecordPrompt(GuestExtent size, const DrawConstants& c);
     void FillTexelConstants(int i, const TextureDesc& d, const DrawTextures& stages, DrawConstants& c);
     void CaptureDraw(const State& s, uint32_t prim, uint32_t count, const PsoKey& k, const DrawConstants& c,
                      const DrawTextures& stages);
@@ -984,6 +997,8 @@ private:
     bool hud_text_ = false;
     bool hud_play_ = false;  // in play: a frame drew 150+ 3D draws, and every frame since moved HUD pieces
     std::unordered_set<uint32_t> hud_sticky_;  // textures moved in play: they keep moving under a popup's text
+    uint64_t bound0_key_ = 0;                  // the provided image stage 0 draws, if any (RecordPrompt)
+    std::vector<PromptRect> prompts_now_;      // this frame's prompt images, fractions of a 4:3 target
     bool gamma_ = false;
     Target* bound_rt_ = nullptr;
     Target* bound_ds_ = nullptr;
@@ -2196,6 +2211,7 @@ ID3D12Resource* D3D12Backend::BindGuestTexture(const State& s, int stage, const 
     if (tx.pack_gen != texturedumper::Generation()) LatchPackKey(tx, d, fi, colours);
     if (tx.pack_key) LatchPackImage(tx);
     const Tex& drawn = tx.swap ? *tx.swap : tx;
+    if (stage == 0) bound0_key_ = tx.swap ? tx.swap_key : 0;  // mechassault-recomp patch: RecordPrompt
     FillTextureView(drawn, d, stages.sv[stage]);
     if (fi.depth) info.shadow = ShadowDepthKind(d.format);
     if (ext_) ext_->Sampled(d, nullptr, tx.flags, info);
@@ -2207,6 +2223,7 @@ void D3D12Backend::LatchPackKey(Tex& tx, const TextureDesc& d, const FormatInfo&
     const uint8_t* p = static_cast<const uint8_t*>(kernel::HostPtr(d.data));
     tx.pack_gen = texturedumper::Generation();
     tx.swap = nullptr;
+    tx.swap_key = 0;
     uint64_t key = texturedumper::Key(d, fi, p, colours);
     texturedumper::Dump(key, d, p, colours);
     // dumping alone keys the bytes too: the pack image is not drawn then
@@ -2227,7 +2244,10 @@ void D3D12Backend::LatchPackImage(Tex& tx) {
         it = pack_textures_.emplace(tx.pack_key, Tex{}).first;
         CreatePackTexture(it->second, img);
     }
-    if (it->second.res) tx.swap = &it->second;
+    if (it->second.res) {
+        tx.swap = &it->second;
+        tx.swap_key = tx.pack_key;
+    }
     tx.pack_key = 0;
 }
 
@@ -2255,6 +2275,7 @@ void D3D12Backend::ReleasePackTextures() {
 }
 
 ID3D12Resource* D3D12Backend::BindTexture(const State& s, int stage, DrawTextures& stages) {
+    if (stage == 0) bound0_key_ = 0;
     TexInfo& info = stages.info[stage];
     D3D12_SHADER_RESOURCE_VIEW_DESC& sv = stages.sv[stage];
     info = {};
@@ -2886,6 +2907,29 @@ float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
     return shift;
 }
 
+// mechassault-recomp patch: a flat draw of a provided prompt image into a 4:3 target: its rectangle where it lands on
+// the picture (after the widescreen squeeze and HudShift), for clicks on it (gpu/prompts.h)
+void D3D12Backend::RecordPrompt(GuestExtent size, const DrawConstants& c) {
+    const Assembled& a = asm_;
+    if (!bound0_key_ || !a.pretransformed || !size.w || !size.h || size.w * 3 != size.h * 4) return;
+    if (!texturedumper::IsProvided(bound0_key_)) return;
+    const VertexElement& e = a.elements[0];
+    const VertexBuffer& b = a.buffers[e.buffer];
+    if (!b.src || !b.stride || e.format != DXGI_FORMAT_R32G32B32A32_FLOAT) return;
+    float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+    for (uint32_t off = e.offset; off + 8 <= b.bytes; off += b.stride) {
+        float p[2];
+        std::memcpy(p, b.src + off, 8);
+        x0 = std::min(x0, p[0]), x1 = std::max(x1, p[0]);
+        y0 = std::min(y0, p[1]), y1 = std::max(y1, p[1]);
+    }
+    if (x1 < x0) return;
+    float w = float(size.w), h = float(size.h);
+    float k = c.wide[0] > 0 ? c.wide[0] : 1.0f;
+    auto squeeze = [&](float x) { return w * 0.5f + (x + c.wide[2] - w * 0.5f) * k; };
+    prompts_now_.push_back({bound0_key_, squeeze(x0) / w, y0 / h, squeeze(x1) / w, y1 / h});
+}
+
 void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const PsoKey& k, const DrawTextures& stages,
                                    GuestExtent size, DrawConstants& c) {
     // the extension edits the uploaded copy, so its draws always get their own
@@ -2910,6 +2954,7 @@ void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const 
         c.wide[1] = s.textures[0] && Describe(s.textures[0], movie) && gpu::wide::MovieFormat(movie.format) ? 1.0f : 0.0f;
     }
     c.wide[2] = HudShift(s, size, c.wide[0]);
+    RecordPrompt(size, c);
     if (sh.fixed_transform) {
         FillTransformConstants(s, size, c);
         FillLightConstants(s, sh.fk, c);
@@ -3947,6 +3992,15 @@ void D3D12Backend::Present(const Surface& front) {
     hud_tex_last_.swap(hud_tex_now_);  // mechassault-recomp patch: HudShift's frame
     hud_tex_now_.clear();
     hud_play_ = hud_3d_now_ >= 150 || (hud_play_ && hud_moved_);  // a paused game's popup keeps the HUD where it was
+    {
+        float vw = 0, vh = 0;
+        PictureSize(vw, vh);
+        std::lock_guard l(g_prompts_lock);
+        g_prompts.rects.swap(prompts_now_);
+        g_prompts.w = vw, g_prompts.h = vh, g_prompts.bw = float(bb_w_), g_prompts.bh = float(bb_h_);
+        g_prompts.x = (g_prompts.bw - vw) / 2, g_prompts.y = (g_prompts.bh - vh) / 2;
+    }
+    prompts_now_.clear();
     if (!hud_play_) hud_sticky_.clear();
     hud_3d_now_ = hud_moved_ = 0;
     hud_text_ = false;

@@ -20,6 +20,7 @@ const gameimport::Profile& Profile();  // src/common/profile.cpp
 extern bool g_mouse_invert_y;
 extern uint32_t g_fov_percent;  // src/game/widescreen.cpp
 extern bool g_unlock_campaign;  // src/game/campaign.cpp
+void UpdatePrompts();          // src/game/prompts.cpp
 }
 
 namespace {
@@ -53,6 +54,7 @@ void GameMenu() {
 
 // keyboard and mouse buttons (rebindable), then a test script's presses when XBE_PAD_SCRIPT is set
 void Pad(int port, input::Pad& pad) {
+    if (port == 0) mechassault::UpdatePrompts();
     mechassault::ScriptPad(port, pad);
     mechassault::KeyboardPad(port, pad);
     mechassault::MouseAimPad(port, pad);
