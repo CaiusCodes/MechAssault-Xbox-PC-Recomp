@@ -831,6 +831,7 @@ private:
     // mechassault-recomp patch: the frame upscaled with FSR 1 to the picture's size on screen, null when off or not
     // upscaling
     ID3D12Resource* Upscale(ID3D12Resource* frame, DXGI_FORMAT fmt);
+    ID3D12Resource* Sharpen(ID3D12Resource* frame, DXGI_FORMAT fmt);
     bool EnsureFsrTargets(uint32_t w, uint32_t h);
     void PictureSize(float& vw, float& vh);
     void RenderUi();
@@ -2380,7 +2381,8 @@ constexpr uint32_t kTexfAnisotropic = 3;
 constexpr uint32_t kTaddressWrap = 1;
 constexpr uint32_t kTaddressClamp = 3;
 
-D3D12_SAMPLER_DESC StageSampler(const State& s, int i, const DrawTextures& stages, bool clamp, uint32_t aniso) {
+D3D12_SAMPLER_DESC StageSampler(const State& s, int i, const DrawTextures& stages, bool clamp, uint32_t aniso,
+                                float bias) {
     D3D12_SAMPLER_DESC sd = {};
     const auto& t = s.tss[size_t(i)];
     uint32_t mag = t[kTssMagFilter];
@@ -2404,6 +2406,9 @@ D3D12_SAMPLER_DESC StageSampler(const State& s, int i, const DrawTextures& stage
     sd.AddressV = Address(clamp && t[kTssAddressV] == kTaddressWrap ? kTaddressClamp : t[kTssAddressV]);
     sd.AddressW = Address(t[kTssAddressW]);
     sd.MipLODBias = Bits(t[kTssMipLodBias]);
+    // mechassault-recomp patch: Texture sharpness, where the title filters across mip levels the texture has
+    if (bias != 0 && lin(min) && mip && stages.sv[i].Texture2D.MipLevels > 1 && !stages.info[i].shadow)
+        sd.MipLODBias += bias;
     sd.MinLOD = float(t[kTssMaxMipLevel]);
     sd.MaxLOD = mip ? D3D12_FLOAT32_MAX : sd.MinLOD;
     Color(t[kTssBorderColor], sd.BorderColor);
@@ -2420,7 +2425,8 @@ D3D12_SAMPLER_DESC StageSampler(const State& s, int i, const DrawTextures& stage
 uint32_t D3D12Backend::EnsureStageSamplers(const State& s, const DrawTextures& stages, bool clamp) {
     D3D12_SAMPLER_DESC sd[4];
     uint32_t aniso = app::Get().aniso;
-    for (int i = 0; i < 4; i++) sd[i] = StageSampler(s, i, stages, clamp, aniso);
+    float bias = -0.1f * float(std::min(app::Get().texture_detail, 15u));
+    for (int i = 0; i < 4; i++) sd[i] = StageSampler(s, i, stages, clamp, aniso, bias);
     uint64_t key = Hash(sd, sizeof(sd));
     auto it = samplers_.find(key);
     if (it != samplers_.end()) return it->second;
@@ -3859,6 +3865,23 @@ ID3D12Resource* D3D12Backend::Upscale(ID3D12Resource* frame, DXGI_FORMAT fmt) {
     return fsr_[1].Get();
 }
 
+// mechassault-recomp patch: RCAS alone at the frame's own size (Settings::sharpen), when FSR is not upscaling
+ID3D12Resource* D3D12Backend::Sharpen(ID3D12Resource* frame, DXGI_FORMAT fmt) {
+    const app::Settings& s = app::Get();
+    if (!s.sharpen || !frame) return nullptr;
+    D3D12_RESOURCE_DESC d = frame->GetDesc();
+    uint32_t w = uint32_t(d.Width), h = d.Height;
+    if (!w || !h || !EnsureFsrTargets(w, h) || !EnsurePassPipeline(kRcasHlsl, "psmain", kBgra, -1)) return nullptr;
+    float stops = 2.0f - std::min(s.sharpen, 20u) / 10.0f;
+    float r[8] = {std::exp2(-stops), float(w), float(h), 0, 0, 0, 0, 0};
+    ID3D12Resource* src[3] = {frame, nullptr, nullptr};
+    DXGI_FORMAT f[3] = {fmt, kBgra, kBgra};
+    Transition(fsr_[1].Get(), fsr_state_[1], D3D12_RESOURCE_STATE_RENDER_TARGET);
+    Pass(kRcasHlsl, "psmain", kBgra, Cpu(rtv_heap_.Get(), fsr_rtv_[1], rtv_inc_), w, h, src, f, r, -1);
+    Transition(fsr_[1].Get(), fsr_state_[1], D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    return fsr_[1].Get();
+}
+
 void D3D12Backend::RenderUi() {
     std::lock_guard lock(app::UiLock());
     ImGui_ImplDX12_NewFrame();
@@ -3886,6 +3909,9 @@ void D3D12Backend::DrawFrame(Target* t, uint32_t bi) {
         // back buffer is bound)
         if (ID3D12Resource* up = Upscale(frame, frame_fmt)) {
             frame = up;
+            frame_fmt = kBgra;
+        } else if (ID3D12Resource* sharp = Sharpen(frame, frame_fmt)) {
+            frame = sharp;
             frame_fmt = kBgra;
         }
     }

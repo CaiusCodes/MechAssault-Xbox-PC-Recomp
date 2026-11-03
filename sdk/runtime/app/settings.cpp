@@ -66,6 +66,8 @@ void Load() {
     s.hud_edges = t["hud_edges"].value_or(s.hud_edges);
     s.lan_adapter = t["lan_adapter"].value_or(s.lan_adapter);
     s.language = std::clamp(t["language"].value_or(s.language), 1u, 9u);
+    s.sharpen = std::min(t["sharpening"].value_or(s.sharpen), 20u);
+    s.texture_detail = std::min(t["texture_detail"].value_or(s.texture_detail), 15u);
     s.upscaler = std::min(t["upscaler"].value_or(s.upscaler), 1u);  // mechassault-recomp patch: FSR
     s.fsr_sharpness = std::min(t["fsr_sharpness"].value_or(s.fsr_sharpness), 20u);
     s.brightness = std::clamp(t["brightness"].value_or(s.brightness), 50u, 200u);
@@ -105,7 +107,9 @@ toml::table Table() {
                   {"monitor", s.monitor},
                   {"hud_edges", s.hud_edges},
                   {"lan_adapter", s.lan_adapter},
-                  {"language", int64_t(s.language)}};
+                  {"language", int64_t(s.language)},
+                  {"sharpening", int64_t(s.sharpen)},
+                  {"texture_detail", int64_t(s.texture_detail)}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));

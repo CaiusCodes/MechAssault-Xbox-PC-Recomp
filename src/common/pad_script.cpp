@@ -148,6 +148,8 @@ void ScriptPad(int port, input::Pad& pad) {
             else if (st.key == "anti_aliasing") g.anti_aliasing = v;
             else if (st.key == "upscaler") g.upscaler = v;
             else if (st.key == "fsr_sharpness") g.fsr_sharpness = v;
+            else if (st.key == "sharpening") g.sharpen = v;
+            else if (st.key == "texture_detail") g.texture_detail = v;
             else if (st.key == "brightness") g.brightness = v;
             else if (st.key == "fps_cap") g.fps_cap = v;
             else if (st.key == "vsync") g.vsync = v != 0;

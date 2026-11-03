@@ -476,6 +476,21 @@ void Menu() {
                                     "a 1440p screen); Auto and higher scales never upscale.");
             }
             ImGui::TextDisabled("A render scale above your display's resolution also smooths edges (supersampling).");
+            // mechassault-recomp patch: sharpening at the picture's own size, and sharper texture levels
+            int sharpen = int(s.sharpen);
+            if (ImGui::SliderInt("Sharpening", &sharpen, 0, 20, sharpen ? "%d" : "Off")) {
+                s.sharpen = uint32_t(sharpen);
+                Changed();
+            }
+            ImGui::TextDisabled("AMD's contrast-adaptive sharpening (RCAS) on the finished picture; when FSR upscales, "
+                                "FSR sharpening applies instead.");
+            int detail = int(s.texture_detail);
+            if (ImGui::SliderInt("Texture sharpness", &detail, 0, 15, detail ? "+%d" : "As the game")) {
+                s.texture_detail = uint32_t(detail);
+                Changed();
+            }
+            ImGui::TextDisabled("Uses sharper texture levels at a distance (a mip bias of up to -1.5). High values can "
+                                "shimmer while moving; anisotropic filtering helps.");
         }
         if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen)) {
             if (Choice<uint32_t>("Performance overlay", s.perf_overlay,
@@ -544,6 +559,8 @@ void Menu() {
             s.brightness = d.brightness;
             s.hud_edges = d.hud_edges;
             s.fsr_sharpness = d.fsr_sharpness;
+            s.sharpen = d.sharpen;
+            s.texture_detail = d.texture_detail;
             Changed(true);
         }
         ImGui::SameLine();
