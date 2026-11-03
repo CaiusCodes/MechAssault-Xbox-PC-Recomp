@@ -19,7 +19,13 @@
 
 namespace mechassault {
 bool g_unlock_campaign = false;  // settings.toml unlock_campaign
+bool InPlay();
 }
+
+// whether a mission is being played: a word at 0x3570C0 is 0 on every front-end screen and while the pause menu is
+// up, and 0x10 or more in a mission (sampled twice a second through the menus, play and the pause menu; 0x3570B8 and
+// 0x35A6E8..F0 beside it move with it: HUD drawing counts). A mission's popups (Basic Controls) count as play.
+bool mechassault::InPlay() { return kernel::R32(0x3570C0) != 0; }
 
 namespace {
 

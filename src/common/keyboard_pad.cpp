@@ -8,6 +8,7 @@
 // Settings: the [bindings] table of settings.toml, by control name, each an array of key names ("W", "Mouse1", ...).
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cfloat>
 #include <cstdint>
 #include <cstdio>
@@ -16,6 +17,7 @@
 #include <string>
 
 #include "core/input.h"
+#include "core/log.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -24,6 +26,10 @@
 #include <toml++/toml.hpp>
 #include "app/app.h"
 #endif
+
+namespace mechassault {
+bool InPlay();  // src/game/campaign.cpp: a mission is being played (not a menu or the pause menu)
+}
 
 namespace mechassault {
 
@@ -206,11 +212,17 @@ bool Down(int vk) {
     if (vk == kWheelDown) return WheelNow() < 0;
     return vk && (GetAsyncKeyState(vk) & 0x8000) != 0;
 }
+// in a menu the left and right mouse buttons are select and back, whatever they are bound to in play
+bool g_menu = true;
 bool Held(int c) {
-    for (int s = 0; s < kSlots; s++)
-        if (Down(g_bind[c][s])) return true;
+    for (int s = 0; s < kSlots; s++) {
+        uint8_t vk = g_bind[c][s];
+        if (g_menu && (vk == VK_LBUTTON || vk == VK_RBUTTON)) continue;
+        if (Down(vk)) return true;
+    }
     return false;
 }
+
 #endif
 
 }  // namespace
@@ -234,6 +246,24 @@ void OnWheel(int delta) {
 void KeyboardPad(int port, input::Pad& pad) {
 #ifdef _WIN32
     if (port != 0) return;
+    // menus: left click selects (A), right click goes back (B); in play they keep their bindings (fire, cycle weapons).
+    // A change counts once it has held for 0.1 s: the word flickers for a frame as one screen gives way to the next
+    {
+        static bool pending = false;
+        static std::chrono::steady_clock::time_point since;
+        bool menu = !InPlay();
+        auto now = std::chrono::steady_clock::now();
+        if (menu == g_menu) {
+            pending = false;
+        } else if (!pending) {
+            pending = true;
+            since = now;
+        } else if (now - since >= std::chrono::milliseconds(100)) {
+            pending = false;
+            g_menu = menu;
+            LOGI("input: %s", g_menu ? "menu (clicks select and go back)" : "play (clicks fire and cycle weapons)");
+        }
+    }
     if (app::MenuOpen()) ClearWheel();  // the wheel scrolls the menu, not the game behind it
     // the keyboard stays plugged in while another window has focus: no "reconnect the controller" pause on alt-tab
     pad.connected = true;
@@ -247,6 +277,8 @@ void KeyboardPad(int port, input::Pad& pad) {
     // analog: A B X Y black white left trigger right trigger
     for (int i = 0; i < 8; i++)
         if (Held(kA + i)) pad.analog[i] = 0xFF;
+    if (g_menu && Down(VK_LBUTTON)) pad.analog[kA] = 0xFF;
+    if (g_menu && Down(VK_RBUTTON)) pad.analog[kB] = 0xFF;
     // sticks: full deflection, only where the real pad is centred
     auto axis = [](int minus, int plus) { return int16_t((Held(plus) ? 32767 : 0) - (Held(minus) ? 32767 : 0)); };
     if (int16_t v = axis(kMoveLeft, kMoveRight)) pad.lx = v;
@@ -328,7 +360,8 @@ void BindingsMenu() {
     }
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("Click a binding, then press a key or mouse button or turn the wheel. Right-click a binding to clear it. Actions are "
-                       "named for the game's Normal button layout (Player Setup > Edit Profile > Controls).");
+                       "named for the game's Normal button layout (Player Setup > Edit Profile > Controls). In the game's "
+                       "menus and its pause menu the left mouse button selects and the right one goes back; the wheel moves.");
     ImGui::PopStyleColor();
     if (ImGui::BeginTable("##bindings", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 2.0f);

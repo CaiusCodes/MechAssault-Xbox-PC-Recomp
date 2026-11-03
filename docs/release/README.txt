@@ -44,6 +44,7 @@ Keyboard and mouse (defaults, all rebindable in F1 > Controls):
   WASD move, mouse turns the torso and aims (or IJKL), left click fire, right click or Q cycle weapons,
   1 energy weapon, 2 ballistic weapon, 3 missile weapon, Space jump jets (hold), Left Shift or F defense,
   Enter fire / confirm, Backspace back, Esc pause, M start menu, Tab scoreboard, arrows or the mouse wheel d-pad.
+  In the menus (and the pause menu) left click selects, right click goes back and the wheel moves.
 
 Folders
 -------

@@ -2,6 +2,7 @@
 // names a text file of lines "<seconds> <control> [hold ms, default 150] [value]", seconds from the first poll;
 // controls: a b x y black white lt rt start back l3 r3 up down left right, lx ly rx ry (value -32768..32767, held
 // for the hold time); "dump" logs every guest thread's stack and starts an F3 frame capture (XBE_CAPTURE_DIR).
+// "peek" logs the XBE_PEEK values only; "memdump <tag>" writes the image's data for scripts/memdiff.py.
 // "menu" opens or closes the F1 settings menu; "set <key> <value>" changes a video setting live as the F1 menu would
 // (render_scale, aspect_ratio, anti_aliasing, upscaler, fsr_sharpness, brightness, fps_cap, vsync, width, height,
 // display_mode 0 fullscreen 1 borderless 2 windowed). '#' starts a comment. Merged into whatever the keyboard and controllers give.
@@ -51,7 +52,7 @@ std::vector<Step> Load() {
         Step st{};
         double hold = 150;
         if (!(s >> st.at >> st.control)) continue;
-        if (st.control == "set") {
+        if (st.control == "set" || st.control == "memdump") {
             s >> st.key >> st.value;
             st.until = st.at;
             steps.push_back(st);
@@ -89,9 +90,9 @@ void ScriptPad(int port, input::Pad& pad) {
     for (size_t i = 0; i < steps.size(); i++) {
         const Step& st = steps[i];
         if (st.port != port) continue;
-        if (st.control == "dump" && now >= st.at && i >= dumped) {
+        if ((st.control == "dump" || st.control == "peek") && now >= st.at && i >= dumped) {
             dumped = i + 1;
-            gpu::g_capture = true;
+            if (st.control == "dump") gpu::g_capture = true;
             // XBE_PEEK="366F1C*+0,366F1C*+4,33DAC0": guest dwords to log; '*' reads the pointer there first
             if (const char* peek = std::getenv("XBE_PEEK")) {
                 std::string list = peek;
@@ -108,10 +109,25 @@ void ScriptPad(int port, input::Pad& pad) {
                 }
             }
             for (auto& t : kernel::Threads())
-                if (t->ctx) {
+                if (st.control == "dump" && t->ctx) {
                     LOGR("thread %X", t->id);
                     kernel::LogGuestStack(*t->ctx, 32);
                 }
+        }
+        // "memdump <tag>": the image's data, 0x2E0000 up to its end, into <XBE_CAPTURE_DIR or captures>\mem_<tag>.bin
+        // as (va, size, bytes) blocks, for scripts/memdiff.py and finding the game's variables
+        if (st.control == "memdump" && now >= st.at && i >= dumped) {
+            dumped = i + 1;
+            const char* dir = std::getenv("XBE_CAPTURE_DIR");
+            std::string path = std::string(dir ? dir : "captures") + "\\mem_" + st.key + ".bin";
+            if (FILE* f = std::fopen(path.c_str(), "wb")) {
+                const uint32_t va = 0x2E0000, end = 0x53A8A0, size = end - va;
+                std::fwrite(&va, 4, 1, f);
+                std::fwrite(&size, 4, 1, f);
+                std::fwrite(kernel::g_base + va, 1, size, f);
+                std::fclose(f);
+                LOGR("pad script: memory to %s", path.c_str());
+            }
         }
         if (st.control == "set" && now >= st.at && i >= dumped) {
             dumped = i + 1;
