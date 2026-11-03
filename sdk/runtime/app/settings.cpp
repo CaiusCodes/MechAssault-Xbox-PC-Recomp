@@ -64,6 +64,7 @@ void Load() {
     s.aspect_ratio = std::min(t["aspect_ratio"].value_or(s.aspect_ratio), kAspectWide219);
     s.monitor = t["monitor"].value_or(s.monitor);
     s.hud_edges = t["hud_edges"].value_or(s.hud_edges);
+    s.lan_adapter = t["lan_adapter"].value_or(s.lan_adapter);
     s.upscaler = std::min(t["upscaler"].value_or(s.upscaler), 1u);  // mechassault-recomp patch: FSR
     s.fsr_sharpness = std::min(t["fsr_sharpness"].value_or(s.fsr_sharpness), 20u);
     s.brightness = std::clamp(t["brightness"].value_or(s.brightness), 50u, 200u);
@@ -101,7 +102,8 @@ toml::table Table() {
                   {"fsr_sharpness", int64_t(s.fsr_sharpness)},
                   {"brightness", int64_t(s.brightness)},
                   {"monitor", s.monitor},
-                  {"hud_edges", s.hud_edges}};
+                  {"hud_edges", s.hud_edges},
+                  {"lan_adapter", s.lan_adapter}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));

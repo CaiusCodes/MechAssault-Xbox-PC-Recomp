@@ -487,6 +487,33 @@ void Menu() {
                 Changed();
             }
         }
+        // mechassault-recomp patch: System Link's network (app/network.cpp, xdk/xnet.cpp)
+        if (ImGui::CollapsingHeader("Network (System Link)")) {
+            static std::vector<NetAdapter> adapters;
+            if (ImGui::IsWindowAppearing() || adapters.empty()) adapters = NetworkAdapters();
+            std::vector<std::pair<std::string, std::string>> list{{"Automatic (the main network)", ""}};
+            for (const NetAdapter& n : adapters) list.push_back({n.name + "  (" + n.ip + ")", n.ip});
+            if (Choice<std::string>("Network", s.lan_adapter, list)) Changed();
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextDisabled("For a virtual LAN (Radmin VPN, ZeroTier, Hamachi, Tailscale) pick its adapter on every PC; "
+                                "the game finds the others' games as on a LAN. Applies the next time you open System "
+                                "Link.");
+            ImGui::PopTextWrapPos();
+            static char join[128] = {};
+            static bool loaded = false;
+            if (!loaded || ImGui::IsWindowAppearing()) {
+                std::snprintf(join, sizeof(join), "%s", s.join_ip.c_str());
+                loaded = true;
+            }
+            if (ImGui::InputText("Join address", join, sizeof(join))) {
+                s.join_ip = join;
+                Changed();
+            }
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextDisabled("To join a host over the internet: its public address or name. The host forwards UDP "
+                                "ports 1000 to 1002 to its PC. Leave empty on a LAN or virtual LAN.");
+            ImGui::PopTextWrapPos();
+        }
         if (kGame.menu) kGame.menu();  // breakdown-recomp patch: the game's sections
         ImGui::Spacing();
         // mechassault-recomp patch: the defaults are the recommended settings, measured (GRAPHICS_AND_PERFORMANCE.md);

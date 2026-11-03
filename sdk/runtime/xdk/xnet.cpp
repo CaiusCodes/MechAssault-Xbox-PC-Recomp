@@ -21,6 +21,7 @@
 #include <array>
 #include <cstdlib>
 #include <random>
+#include <string>
 
 #include "app/app.h"
 #include "xdk/hle.h"
@@ -76,6 +77,7 @@ std::vector<PendingRecv> g_pending;
 std::once_flag g_init;
 int g_instance = 0;
 uint32_t g_local = 0;  // network order
+uint32_t g_bcast = 0;  // mechassault-recomp patch: the chosen adapter's subnet broadcast, 0 automatic
 std::array<uint8_t, 8> g_kid{};
 std::unordered_map<uint32_t, std::array<uint8_t, kXnAddrSize>> g_peers;
 
@@ -153,15 +155,40 @@ uint32_t PrimaryAddress() {
 
 void Pump();
 
-void Init() {
+// refresh: pick the address again (startup); otherwise only the first call does
+void Init(bool refresh = false) {
+    static std::atomic<bool> picked{false};
     std::call_once(g_init, [] {
         WSADATA wsa;
         WSAStartup(MAKEWORD(2, 2), &wsa);
         g_instance = app::Instance();
-        g_local = g_instance ? htonl(0x7F000000u | uint32_t(g_instance)) : PrimaryAddress();
-        LOGI("xnet: %s address %s", g_instance ? "loopback instance" : "LAN", Ip(g_local).c_str());
         std::thread(Pump).detach();
     });
+    // mechassault-recomp patch: the address again at every startup (entering System Link), so a change of adapter in
+    // F1 > Network applies from the next visit
+    if (picked.exchange(true) && !refresh) return;
+    uint32_t local = 0, bcast = 0;
+    std::string chosen;
+    if (!g_instance) {
+        std::lock_guard<std::recursive_mutex> ui(app::UiLock());
+        chosen = app::Get().lan_adapter;
+    }
+    if (g_instance) {
+        local = htonl(0x7F000000u | uint32_t(g_instance));
+    } else if (!chosen.empty()) {
+        for (const app::NetAdapter& n : app::NetworkAdapters())
+            if (n.ip == chosen) {
+                local = n.address;
+                bcast = n.broadcast;
+            }
+        if (!local) LOGW("xnet: adapter %s is not up, using the main one", chosen.c_str());
+    }
+    if (!local) local = PrimaryAddress();
+    if (local != g_local || bcast != g_bcast)
+        LOGI("xnet: %s address %s%s", g_instance ? "loopback instance" : "LAN", Ip(local).c_str(),
+             bcast ? (", broadcasts to " + Ip(bcast)).c_str() : "");
+    g_local = local;
+    g_bcast = bcast;
 }
 
 uint32_t Fail(int err) {
@@ -244,6 +271,12 @@ int SendOnce(SOCKET s, const uint8_t* data, int len, const sockaddr_in* to) {
     sockaddr_in d = *to;
     if (d.sin_addr.s_addr == INADDR_BROADCAST) {
         std::vector<sockaddr_in> also;
+        // mechassault-recomp patch: Windows sends 255.255.255.255 out of one adapter only; the chosen one's own
+        // broadcast address reaches its network (a virtual LAN) whichever that is
+        if (g_bcast) {
+            also.push_back(d);
+            also.back().sin_addr.s_addr = g_bcast;
+        }
         if (uint32_t join = JoinAddress()) {
             also.push_back(d);
             also.back().sin_addr.s_addr = join;
@@ -374,11 +407,11 @@ void CloseSockets() {
 }  // namespace xnet
 
 HLE_STDCALL(XNetStartup, 1) {
-    Init();
+    Init(true);
     return 0;
 }
 HLE_STDCALL(WSAStartup, 2) {
-    Init();
+    Init(true);
     if (a[1]) {
         std::memset(HostPtr(a[1]), 0, 400);
         W32(a[1], 0x02020202);  // wVersion, wHighVersion

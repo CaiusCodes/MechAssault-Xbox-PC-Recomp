@@ -51,6 +51,7 @@ struct Settings {
                                           // also tell the title it is on a widescreen TV)
     std::string monitor;  // mechassault-recomp patch: the display the game is shown on (its device name), empty: main
     bool hud_edges = true;  // mechassault-recomp patch: widescreen HUD pieces at the screen's sides (d3d12 HudShift)
+    std::string lan_adapter;  // mechassault-recomp patch: System Link's adapter (its IPv4 address), empty: automatic
 };
 // mechassault-recomp patch: the displays to choose from (Settings::monitor), and the chosen one (an HMONITOR: the
 // setting's display if it is connected, else the window's)
@@ -60,6 +61,12 @@ struct Monitor {
     bool primary;
 };
 std::vector<Monitor> Monitors();
+// mechassault-recomp patch: the PC's IPv4 network adapters that are up (app/network.cpp), for System Link
+struct NetAdapter {
+    std::string name, ip;
+    uint32_t address, broadcast;  // network order; broadcast: the adapter's subnet broadcast address
+};
+std::vector<NetAdapter> NetworkAdapters();
 void* ChosenMonitor();
 inline constexpr uint32_t kMaxRenderScale = 4;
 // breakdown-recomp patch: the PC settings menu (overlay.cpp) is open: the title gets no pad input
