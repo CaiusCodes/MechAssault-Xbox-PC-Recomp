@@ -2556,6 +2556,14 @@ void D3D12Backend::KeyDepthStencil(const State& s, const Assembled& a, PsoKey& k
     }
     // polygon offset: the slope here, toward the camera is up on reversed depth; the units are in ReversedDepthHlsl
     if (OffsetsPolygons(s, a.topology)) k.zslope = -HostSlopeScale(s, bound_ds_);
+    // mechassault-recomp patch: a pass laid over a surface already drawn (no depth write, less-equal or equal: the shine
+    // on roads and ice, decals) has to land on exactly the depth the surface wrote. On the console every transform ran
+    // through the same vertex unit; here a fixed-function surface and a vertex-program pass round differently, and
+    // the pass flickered in and out of the surface as the camera moved. A few units toward the camera absorb that.
+    if (k.zen && !k.zwrite && (k.zfunc == 0x203 || k.zfunc == 0x202) && !k.zslope) {
+        k.zbias = 8;
+        k.zslope = 1.0f;
+    }
 }
 
 void KeyRasterizer(const State& s, const Assembled& a, PsoKey& k) {
