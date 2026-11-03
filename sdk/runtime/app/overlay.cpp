@@ -10,9 +10,13 @@
 #include <psapi.h>
 
 #include <algorithm>
+#include <cctype>
+#include <cfloat>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
@@ -192,14 +196,43 @@ void RevertPrompt() {
     }
 }
 
-// a combo over (label, value) pairs; true when the value changed
+// a setting's label in the left column; the control drawn next fills the right one (MenuRow, overlay.h)
+float g_label_w = 200;
+float g_page_footer = 0;  // the room a page leaves for the menu's buttons
+
+// XBE_MENU_TAB=<name> (tests, screenshots): that tab is chosen as the menu opens
+ImGuiTabItemFlags TabFlags(const char* name) {
+    static const char* want = std::getenv("XBE_MENU_TAB");
+    return want && ImGui::IsWindowAppearing() && !std::strcmp(want, name) ? ImGuiTabItemFlags_SetSelected : 0;
+}
+
+void Row(const char* label) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(g_label_w);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+}
+
+// a hover note for the control just drawn
+void Hint(const char* text) {
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26);
+        ImGui::TextUnformatted(text);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
+// a combo over (label, value) pairs in a row; true when the value changed
 template <typename T>
 bool Choice(const char* label, T& value, const std::vector<std::pair<std::string, T>>& items) {
     std::string preview = "Custom";
     for (auto& [name, v] : items)
         if (v == value) preview = name;
     bool changed = false;
-    if (ImGui::BeginCombo(label, preview.c_str())) {
+    Row(label);
+    if (ImGui::BeginCombo((std::string("##") + label).c_str(), preview.c_str())) {
         for (auto& [name, v] : items) {
             bool sel = v == value;
             if (ImGui::Selectable(name.c_str(), sel) && !sel) {
@@ -211,6 +244,19 @@ bool Choice(const char* label, T& value, const std::vector<std::pair<std::string
         ImGui::EndCombo();
     }
     return changed;
+}
+
+bool Slider(const char* label, uint32_t& value, int lo, int hi, const char* format) {
+    int v = int(value);
+    Row(label);
+    if (!ImGui::SliderInt((std::string("##") + label).c_str(), &v, lo, hi, format)) return false;
+    value = uint32_t(v);
+    return true;
+}
+
+bool Toggle(const char* label, bool& value) {
+    Row(label);
+    return ImGui::Checkbox((std::string("##") + label).c_str(), &value);
 }
 
 void FpsCounter(bool detailed) {
@@ -250,61 +296,77 @@ void FpsCounter(bool detailed) {
     ImGui::End();
 }
 
-// breakdown-recomp patch: the menu in the game's colours, blood red on near black, square corners
+// breakdown-recomp patch, mechassault-recomp patch (minimal): near black, quiet greys, the game's red only as the
+// accent (the chosen tab, sliders, checks), soft corners
 void Style() {
     ImGuiStyle& st = ImGui::GetStyle();
-    st.WindowRounding = 0;
-    st.ChildRounding = 0;
-    st.FrameRounding = 2;
-    st.PopupRounding = 0;
-    st.GrabRounding = 2;
-    st.TabRounding = 0;
+    st.WindowRounding = 6;
+    st.ChildRounding = 4;
+    st.FrameRounding = 4;
+    st.PopupRounding = 4;
+    st.GrabRounding = 4;
+    st.TabRounding = 4;
     st.WindowBorderSize = 1;
     st.FrameBorderSize = 0;
-    st.WindowPadding = ImVec2(14, 12);
-    st.FramePadding = ImVec2(8, 5);
-    st.ItemSpacing = ImVec2(10, 7);
-    st.WindowTitleAlign = ImVec2(0.0f, 0.5f);
+    st.PopupBorderSize = 1;
+    st.TabBorderSize = 0;
+    st.WindowPadding = ImVec2(18, 16);
+    st.FramePadding = ImVec2(10, 6);
+    st.ItemSpacing = ImVec2(10, 9);
+    st.ItemInnerSpacing = ImVec2(8, 6);
+    st.GrabMinSize = 12;
+    st.ScrollbarSize = 10;
+    st.ScrollbarRounding = 4;
+    st.SeparatorTextBorderSize = 1;
     auto rgb = [](int r, int g, int b, float a = 1.0f) { return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a); };
+    const ImVec4 accent = rgb(196, 30, 40), accent_hi = rgb(224, 58, 62);
     ImVec4* c = st.Colors;
-    c[ImGuiCol_Text] = rgb(236, 232, 228);
-    c[ImGuiCol_TextDisabled] = rgb(156, 145, 141);
-    c[ImGuiCol_WindowBg] = rgb(14, 12, 12, 0.97f);
-    c[ImGuiCol_PopupBg] = rgb(18, 14, 14, 0.98f);
-    c[ImGuiCol_Border] = rgb(110, 28, 32);
-    c[ImGuiCol_FrameBg] = rgb(29, 21, 22);
-    c[ImGuiCol_FrameBgHovered] = rgb(54, 28, 30);
-    c[ImGuiCol_FrameBgActive] = rgb(74, 26, 30);
-    c[ImGuiCol_TitleBg] = rgb(38, 8, 10);
-    c[ImGuiCol_TitleBgActive] = rgb(106, 12, 18);
-    c[ImGuiCol_TitleBgCollapsed] = rgb(38, 8, 10);
-    c[ImGuiCol_ScrollbarBg] = rgb(14, 12, 12);
-    c[ImGuiCol_ScrollbarGrab] = rgb(74, 49, 51);
-    c[ImGuiCol_ScrollbarGrabHovered] = rgb(110, 28, 32);
-    c[ImGuiCol_ScrollbarGrabActive] = rgb(163, 18, 28);
-    c[ImGuiCol_CheckMark] = rgb(236, 232, 228);
-    c[ImGuiCol_SliderGrab] = rgb(163, 18, 28);
-    c[ImGuiCol_SliderGrabActive] = rgb(212, 42, 47);
-    c[ImGuiCol_Button] = rgb(48, 22, 24);
-    c[ImGuiCol_ButtonHovered] = rgb(130, 18, 26);
-    c[ImGuiCol_ButtonActive] = rgb(163, 18, 28);
-    c[ImGuiCol_Header] = rgb(80, 14, 20);
-    c[ImGuiCol_HeaderHovered] = rgb(130, 18, 26);
-    c[ImGuiCol_HeaderActive] = rgb(163, 18, 28);
-    c[ImGuiCol_Separator] = rgb(58, 20, 22);
-    c[ImGuiCol_SeparatorHovered] = rgb(163, 18, 28);
-    c[ImGuiCol_SeparatorActive] = rgb(212, 42, 47);
-    c[ImGuiCol_ResizeGrip] = rgb(58, 20, 22);
-    c[ImGuiCol_ResizeGripHovered] = rgb(163, 18, 28);
-    c[ImGuiCol_ResizeGripActive] = rgb(212, 42, 47);
-    c[ImGuiCol_TableHeaderBg] = rgb(38, 12, 14);
-    c[ImGuiCol_TableBorderStrong] = rgb(58, 20, 22);
-    c[ImGuiCol_TableBorderLight] = rgb(40, 18, 20);
-    c[ImGuiCol_TableRowBgAlt] = rgb(255, 255, 255, 0.03f);
-    c[ImGuiCol_PlotLines] = rgb(212, 42, 47);
+    c[ImGuiCol_Text] = rgb(232, 230, 228);
+    c[ImGuiCol_TextDisabled] = rgb(128, 124, 122);
+    c[ImGuiCol_WindowBg] = rgb(12, 12, 13, 0.97f);
+    c[ImGuiCol_ChildBg] = rgb(0, 0, 0, 0);
+    c[ImGuiCol_PopupBg] = rgb(20, 20, 22, 0.98f);
+    c[ImGuiCol_Border] = rgb(48, 46, 48);
+    c[ImGuiCol_FrameBg] = rgb(30, 30, 32);
+    c[ImGuiCol_FrameBgHovered] = rgb(42, 40, 42);
+    c[ImGuiCol_FrameBgActive] = rgb(52, 46, 48);
+    c[ImGuiCol_TitleBg] = rgb(12, 12, 13);
+    c[ImGuiCol_TitleBgActive] = rgb(12, 12, 13);
+    c[ImGuiCol_TitleBgCollapsed] = rgb(12, 12, 13);
+    c[ImGuiCol_ScrollbarBg] = rgb(0, 0, 0, 0);
+    c[ImGuiCol_ScrollbarGrab] = rgb(56, 54, 56);
+    c[ImGuiCol_ScrollbarGrabHovered] = rgb(80, 76, 78);
+    c[ImGuiCol_ScrollbarGrabActive] = accent;
+    c[ImGuiCol_CheckMark] = accent_hi;
+    c[ImGuiCol_SliderGrab] = accent;
+    c[ImGuiCol_SliderGrabActive] = accent_hi;
+    c[ImGuiCol_Button] = rgb(34, 33, 35);
+    c[ImGuiCol_ButtonHovered] = rgb(52, 48, 50);
+    c[ImGuiCol_ButtonActive] = accent;
+    c[ImGuiCol_Header] = rgb(44, 40, 42);
+    c[ImGuiCol_HeaderHovered] = rgb(56, 48, 50);
+    c[ImGuiCol_HeaderActive] = accent;
+    c[ImGuiCol_Separator] = rgb(40, 38, 40);
+    c[ImGuiCol_SeparatorHovered] = accent;
+    c[ImGuiCol_SeparatorActive] = accent_hi;
+    c[ImGuiCol_ResizeGrip] = rgb(0, 0, 0, 0);
+    c[ImGuiCol_ResizeGripHovered] = rgb(56, 54, 56);
+    c[ImGuiCol_ResizeGripActive] = accent;
+    c[ImGuiCol_Tab] = rgb(0, 0, 0, 0);
+    c[ImGuiCol_TabHovered] = rgb(36, 34, 36);
+    c[ImGuiCol_TabSelected] = rgb(30, 30, 32);
+    c[ImGuiCol_TabSelectedOverline] = accent;
+    c[ImGuiCol_TabDimmed] = rgb(0, 0, 0, 0);
+    c[ImGuiCol_TabDimmedSelected] = rgb(30, 30, 32);
+    c[ImGuiCol_TabDimmedSelectedOverline] = accent;
+    c[ImGuiCol_TableHeaderBg] = rgb(24, 23, 25);
+    c[ImGuiCol_TableBorderStrong] = rgb(40, 38, 40);
+    c[ImGuiCol_TableBorderLight] = rgb(32, 30, 32);
+    c[ImGuiCol_TableRowBgAlt] = rgb(255, 255, 255, 0.025f);
+    c[ImGuiCol_PlotLines] = accent_hi;
     c[ImGuiCol_PlotLinesHovered] = rgb(255, 120, 90);
-    c[ImGuiCol_TextSelectedBg] = rgb(163, 18, 28, 0.5f);
-    c[ImGuiCol_NavHighlight] = rgb(233, 183, 180);
+    c[ImGuiCol_TextSelectedBg] = rgb(196, 30, 40, 0.45f);
+    c[ImGuiCol_NavHighlight] = rgb(224, 200, 196);
     c[ImGuiCol_ModalWindowDimBg] = rgb(0, 0, 0, 0.5f);
 }
 
@@ -327,245 +389,227 @@ void FeedControllers(const input::MenuPad& m) {
     stick(ImGuiKey_GamepadLStickDown, -m.ly);
 }
 
+void DisplayTab(Settings& s, const Settings& before) {
+    if (Choice<DisplayMode>("Display mode", s.display_mode,
+                            {{"Fullscreen", DisplayMode::Fullscreen},
+                             {"Borderless", DisplayMode::Borderless},
+                             {"Windowed", DisplayMode::Windowed}}))
+        DisplayChanged(before);
+    // mechassault-recomp patch: which display; a new one starts at its desktop resolution and rate
+    static std::vector<Monitor> monitors;
+    bool new_monitor = false;
+    if (ImGui::IsWindowAppearing() || monitors.empty()) monitors = Monitors();
+    if (monitors.size() > 1) {
+        std::vector<std::pair<std::string, std::string>> list{{"Automatic", ""}};
+        for (const Monitor& m : monitors)
+            list.push_back({"Display " + std::to_string(m.number) + "  (" + std::to_string(m.width) + " x " +
+                                std::to_string(m.height) + (m.primary ? ", main)" : ")"),
+                            m.device});
+        if (Choice<std::string>("Monitor", s.monitor, list)) {
+            s.width = s.height = 0;
+            s.refresh_hz = 0;
+            new_monitor = true;
+            DisplayChanged(before);
+        }
+    }
+    static std::vector<Resolution> modes;
+    if (ImGui::IsWindowAppearing() || modes.empty() || new_monitor) modes = Resolutions();
+    std::vector<std::pair<std::string, Resolution>> res{{"Desktop", {0, 0}}};
+    for (auto& m : modes) res.push_back({std::to_string(m.w) + " x " + std::to_string(m.h), m});
+    Resolution cur{s.width, s.height};
+    if (Choice<Resolution>(s.display_mode == DisplayMode::Windowed ? "Window size" : "Resolution", cur, res)) {
+        s.width = cur.w;
+        s.height = cur.h;
+        DisplayChanged(before);
+    }
+    // breakdown-recomp patch: Fullscreen can switch the display to a rate 60 fps divides evenly
+    if (s.display_mode == DisplayMode::Fullscreen) {
+        static std::vector<uint32_t> rates;
+        static uint64_t rates_for = ~0ull;
+        uint64_t key = uint64_t(s.width) << 32 | s.height;
+        if (ImGui::IsWindowAppearing() || key != rates_for) {
+            rates = RefreshRates(s.width, s.height);
+            rates_for = key;
+        }
+        std::vector<std::pair<std::string, uint32_t>> hz{{"Desktop's", 0}};
+        for (uint32_t r : rates) hz.push_back({std::to_string(r) + " Hz" + (EvenFor60(r) ? "  (even)" : ""), r});
+        if (Choice<uint32_t>("Refresh rate", s.refresh_hz, hz)) DisplayChanged(before);
+        Hint("Rates marked even show every frame for the same time: the smoothest motion.");
+    }
+    // breakdown-recomp patch: Breakdown draws 4:3 whatever the console reports: Widescreen widens its camera
+    // (src/game/widescreen.cpp), the stretched shapes stretch the 4:3 picture
+    if (Choice<uint32_t>("Aspect ratio", s.aspect_ratio,
+                         {{"Widescreen (fits your screen)", kAspectWide},
+                          {"16:9", kAspectWide169},
+                          {"21:9", kAspectWide219},
+                          {"4:3, as on the Xbox", kAspect43},
+                          {"16:9, stretched", kAspect169},
+                          {"Fill, stretched", kAspectFill}}))
+        Changed();
+    Hint("Widescreen shows more of the scene at the sides, nothing stretched. Menus and movies stay 4:3.");
+    if (s.aspect_ratio == kAspectWide || s.aspect_ratio == kAspectWide169 || s.aspect_ratio == kAspectWide219) {
+        // mechassault-recomp patch: where the HUD goes (d3d12 HudShift)
+        bool edges = s.hud_edges;
+        if (Choice<bool>("HUD", edges, {{"At the screen's edges", true}, {"Around the middle", false}})) {
+            s.hud_edges = edges;
+            Changed();
+        }
+    }
+    // mechassault-recomp patch: brightness as a gamma curve on the finished picture
+    if (Slider("Brightness", s.brightness, 50, 200, "%d%%")) Changed();
+    ImGui::Spacing();
+    bool vsync = s.vsync;
+    if (Toggle("V-Sync", vsync)) {
+        s.vsync = vsync;
+        Changed();
+    }
+    if (Choice<uint32_t>("Frame rate", s.fps_cap,
+                         {{"60", 60}, {"120", 120}, {"144", 144}, {"30", 30}, {"Display refresh rate", kFpsCapRefresh},
+                          {"Unlimited", 0}}))
+        Changed();
+    Hint("The game keeps its own speed at any frame rate. On a display that 60 fps does not divide evenly, use G-Sync "
+         "or FreeSync, or a refresh rate marked even, for the smoothest motion.");
+    if (Choice<uint32_t>("FPS counter", s.perf_overlay, {{"Off", 0}, {"On", 1}, {"With details", 2}})) Changed();
+    Hint("F2 switches it.");
+}
+
+void GraphicsTab(Settings& s) {
+    std::vector<std::pair<std::string, uint32_t>> scales{{LowEndGpu() ? "Auto (up to 2x)" : "Auto", 0}};
+    for (uint32_t i = 1; i <= kMaxRenderScale; i++) {
+        char name[48];
+        std::snprintf(name, sizeof(name), "%ux  (%u x %u)", i, 640 * i, 480 * i);
+        scales.push_back({name, i});
+    }
+    if (Choice<uint32_t>("Render scale", s.render_scale, scales)) {
+        if (!s.render_scale) s.render_percent = 100;
+        Changed();
+    }
+    Hint("Auto draws as many pixels as your screen shows. 1x is the Xbox's own 640 x 480; above your screen's "
+         "resolution it also smooths edges.");
+    if (Choice<uint32_t>("Anti-aliasing", s.anti_aliasing, {{"Off", 0}, {"FXAA", 1}, {"SMAA", 2}})) Changed();
+    Hint("SMAA smooths edges and keeps textures sharp; FXAA is softer.");
+    if (Choice<uint32_t>("Texture filtering", s.aniso,
+                         {{"As the game", 0}, {"2x anisotropic", 2}, {"4x anisotropic", 4}, {"8x anisotropic", 8},
+                          {"16x anisotropic", 16}}))
+        Changed();
+    if (Slider("Texture sharpness", s.texture_detail, 0, 15, s.texture_detail ? "+%d" : "As the game")) Changed();
+    Hint("Sharper texture levels at a distance. High values can shimmer while moving.");
+    ImGui::Spacing();
+    // mechassault-recomp patch: FSR 1 (own implementation of its algorithm) for a render smaller than the picture
+    if (Choice<uint32_t>("Upscaling", s.upscaler, {{"FSR 1", 1}, {"Bilinear", 0}})) Changed();
+    Hint("Only when the render scale is below your screen's resolution.");
+    if (s.upscaler == 1)
+        if (Slider("FSR sharpening", s.fsr_sharpness, 0, 20, "%d")) Changed();
+    if (Slider("Sharpening", s.sharpen, 0, 20, s.sharpen ? "%d" : "Off")) Changed();
+    Hint("Contrast-adaptive sharpening (RCAS) on the finished picture, when FSR is not upscaling.");
+}
+
+// mechassault-recomp patch: System Link's network (app/network.cpp, xdk/xnet.cpp)
+void NetworkTab(Settings& s) {
+    static std::vector<NetAdapter> adapters;
+    if (ImGui::IsWindowAppearing() || adapters.empty()) adapters = NetworkAdapters();
+    std::vector<std::pair<std::string, std::string>> list{{"Automatic", ""}};
+    for (const NetAdapter& n : adapters) list.push_back({n.name + "  (" + n.ip + ")", n.ip});
+    if (Choice<std::string>("Network", s.lan_adapter, list)) Changed();
+    Hint("For a virtual LAN (Radmin VPN, ZeroTier, Hamachi, Tailscale) pick its adapter on every PC. Applies the next "
+         "time you open System Link.");
+    static char join[128] = {};
+    static bool loaded = false;
+    if (!loaded || ImGui::IsWindowAppearing()) {
+        std::snprintf(join, sizeof(join), "%s", s.join_ip.c_str());
+        loaded = true;
+    }
+    Row("Join address");
+    if (ImGui::InputTextWithHint("##join", "a host's internet address", join, sizeof(join))) {
+        s.join_ip = join;
+        Changed();
+    }
+    Hint("To join a host over the internet without a virtual LAN. The host forwards UDP ports 1000 to 1002.");
+    ImGui::Spacing();
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("Host and join from the game's own Multiplayer > System Link.");
+    ImGui::PopTextWrapPos();
+}
+
+void Recommended(Settings& s) {
+    Settings d;
+    s.display_mode = d.display_mode;
+    s.width = d.width;
+    s.height = d.height;
+    s.render_percent = d.render_percent;
+    s.render_scale = d.render_scale;
+    s.fps_cap = d.fps_cap;
+    s.vsync = d.vsync;
+    s.aniso = d.aniso;
+    s.perf_overlay = d.perf_overlay;
+    s.diagnostics_log = d.diagnostics_log;
+    s.anti_aliasing = d.anti_aliasing;
+    s.refresh_hz = d.refresh_hz;
+    s.aspect_ratio = d.aspect_ratio;
+    s.upscaler = d.upscaler;
+    s.brightness = d.brightness;
+    s.hud_edges = d.hud_edges;
+    s.fsr_sharpness = d.fsr_sharpness;
+    s.sharpen = d.sharpen;
+    s.texture_detail = d.texture_detail;
+    Changed(true);
+}
+
 void Menu() {
     Settings& s = Get();
     const Settings before = s;  // what a display change can go back to
     ImGuiIO& io = ImGui::GetIO();
+    float u = ImGui::GetFontSize();
+    g_label_w = u * 13;
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Appearing,
                             ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(560, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(u * 40, std::min(u * 38, io.DisplaySize.y * 0.9f)), ImGuiCond_Appearing);
     if (!g_menu_drawn) ImGui::SetNextWindowFocus();  // a controller can move in it at once
     g_menu_drawn = true;
     static bool popup_before = false;  // B that closed a list this frame must not close the menu too
     bool open = true;
-    // mechassault-recomp patch: the title's own name, not Breakdown's (the shared layer never names a title)
-    std::string title;
-    for (const wchar_t* c = kGame.short_title; *c; c++) title += *c < 0x80 ? char(*c) : '?';
-    title += " PC settings";
-    if (ImGui::Begin(title.c_str(), &open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
-        ImGui::TextDisabled("Controller: hold Back and press Start to open or close, A to change, B to close.");
-        ImGui::PushItemWidth(260);
-        if (ImGui::CollapsingHeader("Display", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (Choice<DisplayMode>("Display mode", s.display_mode,
-                                    {{"Fullscreen", DisplayMode::Fullscreen},
-                                     {"Borderless", DisplayMode::Borderless},
-                                     {"Windowed", DisplayMode::Windowed}}))
-                DisplayChanged(before);
-            // mechassault-recomp patch: which display; a new one starts at its desktop resolution and rate
-            static std::vector<Monitor> monitors;
-            bool new_monitor = false;
-            if (ImGui::IsWindowAppearing() || monitors.empty()) monitors = Monitors();
-            {
-                std::vector<std::pair<std::string, std::string>> list{{"Automatic", ""}};
-                for (const Monitor& m : monitors)
-                    list.push_back({"Display " + std::to_string(m.number) + "  (" + std::to_string(m.width) + " x " +
-                                        std::to_string(m.height) + (m.primary ? ", main)" : ")"),
-                                    m.device});
-                if (Choice<std::string>("Monitor", s.monitor, list)) {
-                    s.width = s.height = 0;
-                    s.refresh_hz = 0;
-                    new_monitor = true;
-                    DisplayChanged(before);
-                }
-            }
-            static std::vector<Resolution> modes;
-            if (ImGui::IsWindowAppearing() || modes.empty() || new_monitor) modes = Resolutions();
-            std::vector<std::pair<std::string, Resolution>> res{{"Desktop", {0, 0}}};
-            for (auto& m : modes) res.push_back({std::to_string(m.w) + " x " + std::to_string(m.h), m});
-            Resolution cur{s.width, s.height};
-            if (Choice<Resolution>(s.display_mode == DisplayMode::Windowed ? "Window size" : "Resolution", cur, res)) {
-                s.width = cur.w;
-                s.height = cur.h;
-                DisplayChanged(before);
-            }
-            // breakdown-recomp patch: Breakdown draws 4:3 whatever the console reports: Widescreen widens its camera
-            // (src/game/widescreen.cpp), the stretched shapes stretch the 4:3 picture
-            if (Choice<uint32_t>("Aspect ratio", s.aspect_ratio,
-                                 {{"Widescreen (fits your screen)", kAspectWide},
-                                  {"16:9 widescreen", kAspectWide169},
-                                  {"21:9 ultrawide", kAspectWide219},
-                                  {"4:3, as on the Xbox", kAspect43},
-                                  {"16:9, stretched", kAspect169},
-                                  {"Fill the screen, stretched", kAspectFill}}))
-                Changed();
-            if (s.aspect_ratio == kAspectWide || s.aspect_ratio == kAspectWide169 || s.aspect_ratio == kAspectWide219)
-            {
-                ImGui::PushTextWrapPos(0);
-                ImGui::TextDisabled(s.aspect_ratio == kAspectWide
-                                        ? "Shows more of the scene at the sides in your screen's shape, up to 32:9. "
-                                          "The HUD, menus and movies stay 4:3."
-                                        : "Shows more of the scene at the sides in this shape, with bars if your "
-                                          "screen's shape differs. The HUD, menus and movies stay 4:3.");
-                ImGui::PopTextWrapPos();
-                // mechassault-recomp patch: where the HUD goes (d3d12 HudShift)
-                bool edges = s.hud_edges;
-                if (Choice<bool>("HUD", edges, {{"At the screen's sides", true}, {"Around the middle (4:3)", false}})) {
-                    s.hud_edges = edges;
-                    Changed();
-                }
-            }
-            // breakdown-recomp patch: Fullscreen can switch the display to a rate 60 fps divides evenly
-            if (s.display_mode == DisplayMode::Fullscreen) {
-                static std::vector<uint32_t> rates;
-                static uint64_t rates_for = ~0ull;
-                uint64_t key = uint64_t(s.width) << 32 | s.height;
-                if (ImGui::IsWindowAppearing() || key != rates_for) {
-                    rates = RefreshRates(s.width, s.height);
-                    rates_for = key;
-                }
-                std::vector<std::pair<std::string, uint32_t>> hz{{"Desktop's", 0}};
-                for (uint32_t r : rates)
-                    hz.push_back({std::to_string(r) + " Hz" + (EvenFor60(r) ? "  (even 60 fps)" : ""), r});
-                if (Choice<uint32_t>("Refresh rate", s.refresh_hz, hz)) DisplayChanged(before);
-            }
-            if (uint32_t now_hz = RefreshHz(); now_hz > 1) {
-                ImGui::PushTextWrapPos(0);
-                if (VBlankEvery() > 0)
-                    ImGui::TextDisabled("60 fps is locked to your display's %u Hz: every frame shows for the same time.",
-                                        now_hz);
-                else if (!EvenFor60(now_hz))
-                    ImGui::TextDisabled("Your display runs at %u Hz, which 60 fps doesn't divide evenly, so motion can "
-                                       "judder slightly. For the smoothest play use G-Sync or FreeSync, set Windows to "
-                                       "60 or 120 Hz, or use Fullscreen with a refresh rate marked even.",
-                                       now_hz);
-                ImGui::PopTextWrapPos();
-            }
-            // mechassault-recomp patch: brightness as a gamma curve on the finished picture
-            int bright = int(s.brightness);
-            if (ImGui::SliderInt("Brightness", &bright, 50, 200, "%d%%")) {
-                s.brightness = uint32_t(bright);
-                Changed();
-            }
-            bool vsync = s.vsync;
-            if (ImGui::Checkbox("V-Sync", &vsync)) {
-                s.vsync = vsync;
-                Changed();
-            }
-            if (Choice<uint32_t>("Frame-rate limit", s.fps_cap,
-                                 {{"Off", 0}, {"Display refresh rate", kFpsCapRefresh}, {"30", 30}, {"60", 60},
-                                  {"120", 120}, {"144", 144}}))
-                Changed();
-            ImGui::TextDisabled("The game keeps its own speed at any frame rate; the limit only caps it. F2 shows the FPS counter.");
-        }
-        if (ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
-            std::vector<std::pair<std::string, uint32_t>> scales{
-                {LowEndGpu() ? "Auto (output resolution, at most 2x)" : "Auto (output resolution)", 0}};
-            for (uint32_t i = 1; i <= kMaxRenderScale; i++) {
-                char name[48];
-                std::snprintf(name, sizeof(name), "%ux (%ux%u)", i, 640 * i, 480 * i);
-                scales.push_back({name, i});
-            }
-            if (Choice<uint32_t>("Render scale", s.render_scale, scales)) {
-                if (!s.render_scale) s.render_percent = 100;
-                Changed();
-            }
-            if (Choice<uint32_t>("Anisotropic filtering", s.aniso,
-                                 {{"As the game asks", 0}, {"2x", 2}, {"4x", 4}, {"8x", 8}, {"16x", 16}}))
-                Changed();
-            if (Choice<uint32_t>("Anti-aliasing", s.anti_aliasing, {{"Off", 0}, {"FXAA", 1}, {"SMAA", 2}})) Changed();
-            // mechassault-recomp patch: FSR 1 (own implementation of its algorithm) for a render smaller than the
-            // picture on screen
-            if (Choice<uint32_t>("Upscaling", s.upscaler, {{"Bilinear", 0}, {"FSR 1", 1}})) Changed();
-            if (s.upscaler == 1) {
-                int sharp = int(s.fsr_sharpness);
-                if (ImGui::SliderInt("FSR sharpening", &sharp, 0, 20)) {
-                    s.fsr_sharpness = uint32_t(sharp);
-                    Changed();
-                }
-                ImGui::TextDisabled("Used when the render scale is below your screen's resolution (for example 1x on "
-                                    "a 1440p screen); Auto and higher scales never upscale.");
-            }
-            ImGui::TextDisabled("A render scale above your display's resolution also smooths edges (supersampling).");
-            // mechassault-recomp patch: sharpening at the picture's own size, and sharper texture levels
-            int sharpen = int(s.sharpen);
-            if (ImGui::SliderInt("Sharpening", &sharpen, 0, 20, sharpen ? "%d" : "Off")) {
-                s.sharpen = uint32_t(sharpen);
-                Changed();
-            }
-            ImGui::TextDisabled("AMD's contrast-adaptive sharpening (RCAS) on the finished picture; when FSR upscales, "
-                                "FSR sharpening applies instead.");
-            int detail = int(s.texture_detail);
-            if (ImGui::SliderInt("Texture sharpness", &detail, 0, 15, detail ? "+%d" : "As the game")) {
-                s.texture_detail = uint32_t(detail);
-                Changed();
-            }
-            ImGui::TextDisabled("Uses sharper texture levels at a distance (a mip bias of up to -1.5). High values can "
-                                "shimmer while moving; anisotropic filtering helps.");
-        }
-        if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (Choice<uint32_t>("Performance overlay", s.perf_overlay,
-                                 {{"Off", 0}, {"FPS counter", 1}, {"FPS counter and diagnostics", 2}}))
-                Changed();
-            bool log = s.diagnostics_log;
-            if (ImGui::Checkbox("Frame timing in the log (every 10 s)", &log)) {
-                s.diagnostics_log = log;
-                Changed();
-            }
-        }
-        // mechassault-recomp patch: System Link's network (app/network.cpp, xdk/xnet.cpp)
-        if (ImGui::CollapsingHeader("Network (System Link)")) {
-            static std::vector<NetAdapter> adapters;
-            if (ImGui::IsWindowAppearing() || adapters.empty()) adapters = NetworkAdapters();
-            std::vector<std::pair<std::string, std::string>> list{{"Automatic (the main network)", ""}};
-            for (const NetAdapter& n : adapters) list.push_back({n.name + "  (" + n.ip + ")", n.ip});
-            if (Choice<std::string>("Network", s.lan_adapter, list)) Changed();
-            ImGui::PushTextWrapPos(0);
-            ImGui::TextDisabled("For a virtual LAN (Radmin VPN, ZeroTier, Hamachi, Tailscale) pick its adapter on every PC; "
-                                "the game finds the others' games as on a LAN. Applies the next time you open System "
-                                "Link.");
-            ImGui::PopTextWrapPos();
-            static char join[128] = {};
-            static bool loaded = false;
-            if (!loaded || ImGui::IsWindowAppearing()) {
-                std::snprintf(join, sizeof(join), "%s", s.join_ip.c_str());
-                loaded = true;
-            }
-            if (ImGui::InputText("Join address", join, sizeof(join))) {
-                s.join_ip = join;
-                Changed();
-            }
-            ImGui::PushTextWrapPos(0);
-            ImGui::TextDisabled("To join a host over the internet: its public address or name. The host forwards UDP "
-                                "ports 1000 to 1002 to its PC. Leave empty on a LAN or virtual LAN.");
-            ImGui::PopTextWrapPos();
-        }
-        if (kGame.menu) kGame.menu();  // breakdown-recomp patch: the game's sections
-        ImGui::Spacing();
-        // mechassault-recomp patch: the defaults are the recommended settings, measured (GRAPHICS_AND_PERFORMANCE.md);
-        // Auto render scale adapts to the GPU found
-        ImGui::PushTextWrapPos(0);
-        ImGui::TextDisabled(LowEndGpu() ? "Recommended for this PC (integrated graphics found): borderless at your "
-                                          "desktop resolution, render scale Auto up to 2x, FXAA, FSR 1, V-Sync, 60 fps, "
-                                          "widescreen."
-                                        : "Recommended for this PC: borderless at your desktop resolution, render scale "
-                                          "Auto, FXAA, FSR 1, V-Sync, 60 fps, widescreen.");
-        ImGui::PopTextWrapPos();
-        if (ImGui::Button("Use recommended settings")) {
-            Settings d;
-            s.display_mode = d.display_mode;
-            s.width = d.width;
-            s.height = d.height;
-            s.render_percent = d.render_percent;
-            s.render_scale = d.render_scale;
-            s.fps_cap = d.fps_cap;
-            s.vsync = d.vsync;
-            s.aniso = d.aniso;
-            s.perf_overlay = d.perf_overlay;
-            s.diagnostics_log = d.diagnostics_log;
-            s.anti_aliasing = d.anti_aliasing;
-            s.refresh_hz = d.refresh_hz;
-            s.aspect_ratio = d.aspect_ratio;
-            s.upscaler = d.upscaler;
-            s.brightness = d.brightness;
-            s.hud_edges = d.hud_edges;
-            s.fsr_sharpness = d.fsr_sharpness;
-            s.sharpen = d.sharpen;
-            s.texture_detail = d.texture_detail;
-            Changed(true);
-        }
+    if (ImGui::Begin("##settings", &open, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings)) {
+        // mechassault-recomp patch: the title's own name, not Breakdown's (the shared layer never names a title)
+        std::string title;
+        for (const wchar_t* c = kGame.short_title; *c; c++) title += *c < 0x80 ? char(*c) : '?';
+        for (char& ch : title) ch = char(std::toupper(static_cast<unsigned char>(ch)));
+        ImGui::TextDisabled("%s", title.c_str());
         ImGui::SameLine();
-        if (ImGui::Button("Close (F1)")) open = false;
-        ImGui::PopItemWidth();
+        ImGui::TextUnformatted("Settings");
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetFrameHeight());
+        if (ImGui::Button("x", ImVec2(ImGui::GetFrameHeight(), 0))) open = false;
+        ImGui::Spacing();
+        float footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+        if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_NoTooltip)) {
+            auto tab = [&](const char* name, auto draw) {
+                if (!ImGui::BeginTabItem(name, nullptr, TabFlags(name))) return;
+                ImGui::BeginChild("##page", ImVec2(0, -footer), ImGuiChildFlags_None, ImGuiWindowFlags_NavFlattened);
+                ImGui::Spacing();
+                draw();
+                ImGui::EndChild();
+                ImGui::EndTabItem();
+            };
+            tab("Display", [&] { DisplayTab(s, before); });
+            tab("Graphics", [&] { GraphicsTab(s); });
+            if (kGame.menu) {
+                // breakdown-recomp patch: the game's own tabs (MenuPage, overlay.h)
+                g_page_footer = footer;
+                kGame.menu();
+            }
+            tab("Network", [&] { NetworkTab(s); });
+            ImGui::EndTabBar();
+        }
+        ImGui::Separator();
+        if (ImGui::Button("Recommended")) Recommended(s);
+        Hint(LowEndGpu() ? "Borderless at your desktop resolution, render scale Auto up to 2x, FXAA, FSR 1, V-Sync, "
+                           "60 fps, widescreen (integrated graphics found)."
+                         : "Borderless at your desktop resolution, render scale Auto, FXAA, FSR 1, V-Sync, 60 fps, "
+                           "widescreen.");
+        ImGui::SameLine();
+        ImGui::TextDisabled("  F1 or Back + Start closes");
+        float close_w = ImGui::CalcTextSize("Close").x + ImGui::GetStyle().FramePadding.x * 2;
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - close_w);
+        if (ImGui::Button("Close")) open = false;
         // B closes the menu once nothing inside it (an open list, an item being edited) takes it
         bool popup = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !popup && !popup_before &&
@@ -581,6 +625,19 @@ void Menu() {
 }
 
 }  // namespace
+
+void MenuRow(const char* label) { Row(label); }
+void MenuHint(const char* text) { Hint(text); }
+bool MenuPage(const char* name) {
+    if (!ImGui::BeginTabItem(name, nullptr, TabFlags(name))) return false;
+    ImGui::BeginChild("##page", ImVec2(0, -g_page_footer), ImGuiChildFlags_None, ImGuiWindowFlags_NavFlattened);
+    ImGui::Spacing();
+    return true;
+}
+void EndMenuPage() {
+    ImGui::EndChild();
+    ImGui::EndTabItem();
+}
 
 bool MenuOpen() { return g_menu.load(std::memory_order_relaxed); }
 void ToggleMenu() {

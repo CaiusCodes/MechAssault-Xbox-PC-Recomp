@@ -377,10 +377,7 @@ void BindingsMenu() {
     static int listen_control = -1, listen_slot = 0;
     static bool released = false;  // every key up since listening began, so the click that started it is not taken
     static double listen_start = 0;
-    if (!ImGui::TreeNodeEx("Keys and mouse buttons", ImGuiTreeNodeFlags_DefaultOpen)) {
-        listen_control = -1;
-        return;
-    }
+    ImGui::SeparatorText("Keys and mouse buttons");
     // listening: the first key or mouse button pressed after all were released; nothing for 5 seconds cancels
     bool just_bound = false;  // a right-click that was just bound is not also a clear
     if (listen_control >= 0) {
@@ -402,11 +399,9 @@ void BindingsMenu() {
         }
         if (listen_control >= 0 && ImGui::GetTime() - listen_start > 5) listen_control = -1;
     }
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Click a binding, then press a key or mouse button or turn the wheel. Right-click a binding to clear it. Actions are "
-                       "named for the game's Normal button layout (Player Setup > Edit Profile > Controls). In the game's "
-                       "menus and its pause menu the left mouse button selects and the right one goes back; the wheel moves.");
-    ImGui::PopStyleColor();
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("Click a binding, then press a key, mouse button or wheel. Right-click clears it.");
+    ImGui::PopTextWrapPos();
     if (ImGui::BeginTable("##bindings", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 2.0f);
         ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthStretch, 1.0f);
@@ -440,12 +435,11 @@ void BindingsMenu() {
         }
         ImGui::EndTable();
     }
-    if (ImGui::Button("Reset keys and mouse buttons")) {
+    if (ImGui::Button("Reset to defaults")) {
         ResetBindings();
         listen_control = -1;
         app::Save();
     }
-    ImGui::TreePop();
 #endif
 }
 

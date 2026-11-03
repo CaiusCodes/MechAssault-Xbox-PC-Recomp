@@ -30,6 +30,7 @@
 #include <windows.h>
 #include <imgui.h>
 #include "app/app.h"
+#include "app/overlay.h"
 #endif
 
 namespace mechassault {
@@ -258,20 +259,22 @@ bool MouseMessage(void* hwnd_, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t
 // the F1 menu's Controls section
 void MouseMenu() {
 #ifdef _WIN32
-    if (!ImGui::CollapsingHeader("Controls", ImGuiTreeNodeFlags_DefaultOpen)) return;
-    bool changed = ImGui::Checkbox("Mouse aim", &g_mouse_aim);
+    if (!app::MenuPage("Controls")) return;
+    app::MenuRow("Mouse aim");
+    bool changed = ImGui::Checkbox("##aim", &g_mouse_aim);
+    app::MenuHint("The mouse turns your 'Mech and looks up and down. The cursor is held while you play.");
     int sens = int(g_mouse_sensitivity);
-    if (ImGui::SliderInt("Mouse sensitivity", &sens, 10, 400, "%d%%")) {
+    app::MenuRow("Mouse sensitivity");
+    if (ImGui::SliderInt("##sens", &sens, 10, 400, "%d%%")) {
         g_mouse_sensitivity = uint32_t(sens);
         changed = true;
     }
-    changed |= ImGui::Checkbox("Invert mouse Y", &g_mouse_invert_y);
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("The mouse turns your 'Mech and looks up and down directly, at 0.05 degrees a count at 100%. "
-                       "The cursor is held while you play and freed in the menus.");
-    ImGui::PopStyleColor();
+    app::MenuRow("Invert mouse Y");
+    changed |= ImGui::Checkbox("##invert", &g_mouse_invert_y);
     if (changed) app::Save();
+    ImGui::Spacing();
     BindingsMenu();
+    app::EndMenuPage();
 #endif
 }
 
