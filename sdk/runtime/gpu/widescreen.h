@@ -10,7 +10,13 @@
 
 #include <cstdint>
 
+#include <atomic>
+
 namespace gpu::wide {
+
+// mechassault-recomp patch: the title is in play (not a menu or its pause menu): only then may HudShift take a new
+// texture for a HUD piece; a paused game's popup (its frame's edges, its prompts) keeps the 4:3 layout
+inline std::atomic<bool> g_hud_learn{true};
 
 // once a frame, from the renderer's thread: app::WideView()
 void SetView(float view);

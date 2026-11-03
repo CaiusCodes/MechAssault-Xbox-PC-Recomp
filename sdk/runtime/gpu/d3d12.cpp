@@ -1012,6 +1012,10 @@ private:
     // the HUD pieces moved this frame and the last: x0 y0 x1 y1 in target pixels, and the shift (text beside one
     // moves with it: the ammo count by the weapon gauge)
     std::vector<std::array<float, 5>> hud_rects_now_, hud_rects_last_;
+    // a texture becomes a HUD piece (hud_sticky_) only from a frame with no text, in play: a popup's frame pieces and
+    // prompts come with text, so they keep the 4:3 layout
+    std::vector<uint32_t> hud_learn_now_;
+    bool hud_text_last_ = true;
     uint64_t bound0_key_ = 0;                  // the provided image stage 0 draws, if any (RecordPrompt)
     bool bound0_bar_ = false;                  // stage 0 is MechAssault's menu highlight bar (RecordPrompt)
     std::vector<PromptRect> prompts_now_;      // this frame's prompt images, fractions of a 4:3 target
@@ -2925,6 +2929,8 @@ float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
     float w = float(size.w);
     float out = 0.5f * w * (1.0f / factor - 1.0f);
     float shift = lo > 0.5f && hi <= 0.36f * w ? -out : hi < w - 0.5f && lo >= 0.64f * w ? out : 0.0f;
+    bool known = hud_sticky_.count(tex) != 0;
+    if (!text && !known && (hud_text_last_ || !wide::g_hud_learn)) return 0;
     if (text) {
         // text in the outer part only moves when it sits by a HUD piece moved last frame, on the same side (each
         // glyph is a draw of its own, so a message box's text reaching that far would otherwise come apart)
@@ -2937,7 +2943,7 @@ float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
     }
     if (shift != 0) {
         hud_moved_++;
-        hud_sticky_.insert(tex);
+        if (!known) hud_learn_now_.push_back(tex);
         hud_rects_now_.push_back({lo, top, hi, bottom, shift});
     }
     return shift;
@@ -4228,6 +4234,9 @@ void D3D12Backend::Present(const Surface& front) {
     }
     prompts_now_.clear();
     if (!hud_play_) hud_sticky_.clear();
+    if (!hud_text_) hud_sticky_.insert(hud_learn_now_.begin(), hud_learn_now_.end());
+    hud_learn_now_.clear();
+    hud_text_last_ = hud_text_;
     hud_3d_now_ = hud_moved_ = 0;
     hud_text_ = false;
     Target* t = EnsureTarget(front, false);

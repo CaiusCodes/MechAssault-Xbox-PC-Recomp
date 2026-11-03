@@ -18,6 +18,7 @@
 
 #include "core/input.h"
 #include "core/log.h"
+#include "gpu/widescreen.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -288,6 +289,7 @@ void KeyboardPad(int port, input::Pad& pad) {
         } else if (now - since >= std::chrono::milliseconds(100)) {
             pending = false;
             g_menu = menu;
+            gpu::wide::g_hud_learn = !menu;  // HUD pieces are learnt in play only (d3d12 HudShift)
             LOGI("input: %s", g_menu ? "menu (clicks select and go back)" : "play (clicks fire and cycle weapons)");
         }
     }
