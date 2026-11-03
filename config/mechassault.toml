@@ -32,3 +32,9 @@ CDirectSoundStream_SetMixBinVolumes = 0x2930C6  # ret 8
 [[hook]]
 at = 0x39209
 call = "MechAssaultWidenProjection"
+
+# Unlock the whole campaign (setup extra, F1 > Gameplay): fill in the profile's campaign progress as the campaign menu
+# opens, right after it loads the profile (0x895B0) (src/game/campaign.cpp)
+[[hook]]
+at = 0x8B0A3
+call = "MechAssaultUnlockCampaign"

@@ -1,0 +1,17 @@
+# with unlock_campaign = true: title -> profile -> Select Mission -> a late mission (three up from the ending) ->
+# briefing -> 'Mech select -> launch, then walk and fire
+14 start 200
+18 a 200
+21 up 150
+22 up 150
+23 up 150
+26 a 200
+32 a 200
+36 start 200
+40 a 200
+47 a 200
+54 a 200
+60 a 200
+75 ly 30000 4000
+80 rt 2000
+84 ly 30000 4000

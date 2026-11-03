@@ -19,6 +19,7 @@ extern uint32_t g_mouse_sensitivity;
 const gameimport::Profile& Profile();  // src/common/profile.cpp
 extern bool g_mouse_invert_y;
 extern uint32_t g_fov_percent;  // src/game/widescreen.cpp
+extern bool g_unlock_campaign;  // src/game/campaign.cpp
 }
 
 namespace {
@@ -32,6 +33,9 @@ void GameMenu() {
             app::Save();
         }
         ImGui::TextDisabled("Of the game's own view, for every camera including cutscenes; 100%% is the original.");
+        if (ImGui::Checkbox("Unlock the whole campaign", &mechassault::g_unlock_campaign)) app::Save();
+        ImGui::TextDisabled("Every mission and movie in the campaign's Select Mission, from the next visit to it. Your "
+                            "profile keeps it once the game next saves (after a mission).");
     }
     mechassault::MouseMenu();
 }
@@ -58,7 +62,8 @@ const app::GameInfo app::kGame = {
     .options = {{"mouse_aim", &mechassault::g_mouse_aim, nullptr},  // game settings kept in the settings file
                 {"mouse_sensitivity", nullptr, &mechassault::g_mouse_sensitivity},  // percent, 100 = 0.05 degrees a count
                 {"mouse_invert_y", &mechassault::g_mouse_invert_y, nullptr},
-                {"fov_percent", nullptr, &mechassault::g_fov_percent}},  // field of view, 80-130
+                {"fov_percent", nullptr, &mechassault::g_fov_percent},  // field of view, 80-130
+                {"unlock_campaign", &mechassault::g_unlock_campaign, nullptr}},
     .load = mechassault::LoadBindings,  // [bindings]: keys and mouse buttons (src/common/keyboard_pad.cpp)
     .save = mechassault::SaveBindings,
     .init = nullptr,
@@ -71,7 +76,9 @@ const app::GameInfo app::kGame = {
     .rumble = nullptr,
     .profile = &mechassault::Profile(),  // src/common/profile.cpp
     .extras = {{L"Mouse aim", L"Turn the torso and aim with the mouse. The keyboard and a controller always work too.",
-                &mechassault::g_mouse_aim}},
+                &mechassault::g_mouse_aim},
+               {L"Unlock the whole campaign", L"Every mission and movie playable from the mission select at once.",
+                &mechassault::g_unlock_campaign}},
     .controls = L"Mouse aim · WASD move · Left click fire · Right click or Q cycle weapons · "
                 L"1 2 3 energy, ballistic, missile · Space jump jets · Shift defense · Esc pause",
     .platform_line = L"Original Xbox · Title ID 4D530017",

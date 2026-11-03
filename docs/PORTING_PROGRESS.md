@@ -22,6 +22,7 @@ Milestone words as in the Breakdown port: parses, recompiles, links, boots, rend
 | Long play without a crash | 6.5 min and 31 min of random play | "Stress run" below |
 | Local multiplayer (a second map: Colosseum) | yes | `runs\mp2_sheet.png` |
 | Two-player splitscreen (second pad scripted), also in Widescreen | yes | `runs\split1_sheet.png`, `runs\splitwide2\000.png` |
+| Whole campaign selectable ("Unlock the whole campaign"), a late map (Mission 19) played | yes | `scripts\pad_campaign_select.txt` (`runs\unlock3`), `scripts\pad_campaign_late.txt` (`runs\unlock_late\028`) |
 | Video settings changed live mid-mission | yes | `scripts\pad_live_settings.txt`, `runs\live1` |
 | Packaged release: setup -> import -> player-side build -> play | yes (unattended test mode) | item 16 below |
 | Keyboard and mouse | mouse aim verified with injected counts; keys not pressed by a person | item 12 below |

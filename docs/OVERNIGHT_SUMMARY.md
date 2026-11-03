@@ -44,7 +44,8 @@ enemies destroyed; local multiplayer Grinder on Colosseum against attacking 'Mec
 two-player splitscreen (also in Widescreen); a 31-minute random-play run
 of the campaign map with no crash or hang (60 fps in all 187 ten-second windows, stalls only while loading plus one
 57 ms frame, memory flat at ~400 MB); the packaged release's first run (setup -> import -> player-side build -> play). Not reached:
-later campaign maps (need playing through). Not done: a person playing with a controller or keyboard/mouse.
+most later campaign maps (after the night, an "Unlock the whole campaign" option made all of them selectable and
+Mission 19 was played). Not done: a person playing with a controller or keyboard/mouse.
 
 ## 5. Rendering that works
 
