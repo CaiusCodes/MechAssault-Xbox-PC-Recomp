@@ -2556,13 +2556,17 @@ void D3D12Backend::KeyDepthStencil(const State& s, const Assembled& a, PsoKey& k
     }
     // polygon offset: the slope here, toward the camera is up on reversed depth; the units are in ReversedDepthHlsl
     if (OffsetsPolygons(s, a.topology)) k.zslope = -HostSlopeScale(s, bound_ds_);
-    // mechassault-recomp patch: a pass laid over a surface already drawn (no depth write, less-equal or equal: the shine
-    // on roads and ice, decals) has to land on exactly the depth the surface wrote. On the console every transform ran
-    // through the same vertex unit; here a fixed-function surface and a vertex-program pass round differently, and
-    // the pass flickered in and out of the surface as the camera moved. A few units toward the camera absorb that.
+    // mechassault-recomp patch: a pass laid over a surface already drawn (no depth write, less-equal or equal) has to
+    // land on exactly the depth the surface wrote. MechAssault draws roads, pads and ice with fixed-function vertices,
+    // then multiplies its projected lighting and shadow texture over them with its own vertex programs (B01065D1/F1,
+    // blend dst colour * src) and adds shine passes the same way. On the console every transform ran through the same
+    // vertex unit; here the fixed-function surface (our matrices) and the program (the game's own composite constants)
+    // round differently, so the pass failed its depth test on some triangles: hard-edged patches of light, shadow and
+    // wet sheen that came and went as the camera moved. A bias toward the camera (64 units of the primitive's largest
+    // depth, about 8e-6 of it, and twice the slope) absorbs that and is far below anything visible.
     if (k.zen && !k.zwrite && (k.zfunc == 0x203 || k.zfunc == 0x202) && !k.zslope) {
-        k.zbias = 8;
-        k.zslope = 1.0f;
+        k.zbias = 64;
+        k.zslope = 2.0f;
     }
 }
 
