@@ -1,6 +1,6 @@
 # mechassault-recomp: run the dev build windowed for N seconds, screenshot the window every few seconds, then close
 # only the process this started. scripts\run.ps1 -Seconds 60 -Every 5 -Tag name   (shots in runs\<tag>\)
-param([int]$Seconds = 40, [int]$Every = 5, [string]$Tag = "run", [string]$Exe = "out\build\release\MechAssault.exe")
+param([int]$Seconds = 40, [double]$Every = 5, [double]$BurstFrom = -1, [double]$BurstEvery = 0.25, [string]$Tag = "run", [string]$Exe = "out\build\release\MechAssault.exe")
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 Add-Type -AssemblyName System.Drawing
@@ -23,7 +23,7 @@ $p = Start-Process -FilePath $exePath -WorkingDirectory (Split-Path $exePath) -P
 $t0 = Get-Date; $i = 0; $lastCpu = 0; $lastT = 0; $cpuLog = Join-Path $dir "cpu.txt"; "" | Set-Content $cpuLog
 while (((Get-Date) - $t0).TotalSeconds -lt $Seconds -and -not $p.HasExited) {
     $left = $Seconds - ((Get-Date) - $t0).TotalSeconds
-    Start-Sleep -Milliseconds ([int](1000 * [math]::Max(0.2, [math]::Min($Every, $left)))); $p.Refresh(); $h = $p.MainWindowHandle
+    $step = if ($BurstFrom -ge 0 -and ((Get-Date) - $t0).TotalSeconds -ge $BurstFrom) { $BurstEvery } else { $Every }; Start-Sleep -Milliseconds ([int](1000 * [math]::Max(0.05, [math]::Min($step, $left)))); $p.Refresh(); $h = $p.MainWindowHandle
     $now = ((Get-Date) - $t0).TotalSeconds
     try { $cpu = $p.TotalProcessorTime.TotalSeconds; if ($now -gt $lastT) { "{0,7:N1} s  {1,5:N2} cores  {2,5:N0} MB" -f $now, (($cpu - $lastCpu) / ($now - $lastT)), ($p.WorkingSet64 / 1MB) | Add-Content $cpuLog }; $lastCpu = $cpu; $lastT = $now } catch {}
     $gw = [W]::FindWindow($null, "MechAssault"); if ($gw -ne [IntPtr]::Zero) { $h = $gw }

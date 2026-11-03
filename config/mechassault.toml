@@ -68,6 +68,14 @@ WSAGetLastError           = 0x2517AE  # jmp 0x16EEE (the thread's last error), 3
 XOnlineStartup            = 0x238884  # ret 4, WSAStartup(0x200) then the Live object; lock 0x3524F4
 XOnlineCleanup            = 0x238965  # ret 0, 0x80150005 with no Live object, then WSACleanup (0x25171E)
 
+# Bink: the movie step (0x206D90) calls BinkWait 0x2CB180 (ret 4, nonzero: not due yet) unless the movie's flag at
+# +0x23 is set, then BinkDoFrame 0x2CAA40 (ret 4), BinkCopyToBuffer 0x2CA390 (7 arguments), and at the end
+# BinkNextFrame 0x2CC660 (ret 4). Movies with the flag (the logos) stepped once per game frame: at 60 fps twice their
+# speed. Named, the runtime's BinkDoFrame (xdk/bink.cpp) holds every movie's frame until BinkWait says it is due.
+BinkWait                  = 0x2CB180
+BinkDoFrame               = 0x2CAA40
+BinkNextFrame             = 0x2CC660
+
 [data]
 
 # True widescreen: widen the camera between D3DXMatrixPerspectiveFovLH and SetTransform (src/game/widescreen.cpp)

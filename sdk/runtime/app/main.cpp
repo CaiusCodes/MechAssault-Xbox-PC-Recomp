@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <cwchar>
 #include <thread>
 
@@ -41,6 +42,13 @@ HWND g_hwnd = nullptr;
 constexpr UINT kApplyDisplay = WM_APP + 1, kOpenWindow = WM_APP + 2;
 bool g_mode_changed = false;
 bool g_apply_posted = false;  // a display apply is waiting in the queue or running
+
+// mechassault-recomp patch: XBE_BACKGROUND=1 (test runs on a PC someone is using): no splash, and the window opens
+// windowed in the bottom-right corner of the screen without taking the focus
+bool Background() {
+    static const bool on = std::getenv("XBE_BACKGROUND") != nullptr;
+    return on;
+}
 
 // crash dump in CrashDumps beside the exe
 LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
@@ -137,8 +145,11 @@ void ApplyNow() {
         int w = r.right - r.left, h = r.bottom - r.top;
         const RECT& a = mi.rcWork;
         SetWindowLongPtrW(g_hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | visible);
-        SetWindowPos(g_hwnd, HWND_NOTOPMOST, a.left + (a.right - a.left - w) / 2, a.top + (a.bottom - a.top - h) / 2, w, h,
-                     SWP_FRAMECHANGED);
+        if (Background())
+            SetWindowPos(g_hwnd, HWND_BOTTOM, a.right - w, a.bottom - h, w, h, SWP_FRAMECHANGED | SWP_NOACTIVATE);
+        else
+            SetWindowPos(g_hwnd, HWND_NOTOPMOST, a.left + (a.right - a.left - w) / 2, a.top + (a.bottom - a.top - h) / 2,
+                         w, h, SWP_FRAMECHANGED);
     } else {
         const RECT& m = mi.rcMonitor;
         SetWindowLongPtrW(g_hwnd, GWL_STYLE, WS_POPUP | visible);
@@ -192,8 +203,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case kOpenWindow:
             CloseSplash();
             if (wp) ApplyNow();
-            ShowWindow(hwnd, SW_SHOW);
-            SetForegroundWindow(hwnd);
+            ShowWindow(hwnd, Background() ? SW_SHOWNOACTIVATE : SW_SHOW);
+            if (!Background()) SetForegroundWindow(hwnd);
             return 0;
         case WM_CLOSE:
             DestroyWindow(hwnd);
@@ -318,7 +329,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     if (!have_game && !app::FindGame(game)) return 1;
     if (!app::PrepareGameCode(game)) return 1;
 
-    bool splash = app::OpenSplash(), handover = app::StartHandover();
+    bool splash = !app::Background() && app::OpenSplash(), handover = app::StartHandover();
 
     WNDCLASSEXW wc{sizeof(wc)};
     wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -335,7 +346,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         app::ApplyNow();
     } else if (!splash) {
         app::ApplyNow();
-        ShowWindow(app::g_hwnd, SW_SHOW);
+        ShowWindow(app::g_hwnd, app::Background() ? SW_SHOWNOACTIVATE : SW_SHOW);
     }
 
     IMGUI_CHECKVERSION();
