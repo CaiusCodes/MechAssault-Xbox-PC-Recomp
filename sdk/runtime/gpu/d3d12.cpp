@@ -767,6 +767,7 @@ private:
     void UploadConstants(const State& s, const DrawShaders& sh, const PsoKey& k, const DrawTextures& stages,
                          GuestExtent size, DrawConstants& c);
     void FillTextureConstants(const State& s, const DrawShaders& sh, const DrawTextures& stages, DrawConstants& c);
+    float HudShift(const State& s, GuestExtent size, float factor);
     void FillTexelConstants(int i, const TextureDesc& d, const DrawTextures& stages, DrawConstants& c);
     void CaptureDraw(const State& s, uint32_t prim, uint32_t count, const PsoKey& k, const DrawConstants& c,
                      const DrawTextures& stages);
@@ -976,6 +977,13 @@ private:
     bool ramp_dirty_ = false;
     bool ramp_set_ = false;               // mechassault-recomp patch: the title has set a ramp (else identity)
     uint32_t brightness_applied_ = 100;   // mechassault-recomp patch: app::Settings::brightness in the ramp
+    // mechassault-recomp patch: HUD at the screen's edges in widescreen (HudShift): last frame's and this frame's
+    // draws per texture of flat draws, and 3D draws into a 4:3 target; whether text has been drawn this frame
+    std::unordered_map<uint32_t, uint32_t> hud_tex_last_, hud_tex_now_;
+    uint32_t hud_3d_now_ = 0, hud_moved_ = 0;
+    bool hud_text_ = false;
+    bool hud_play_ = false;  // in play: a frame drew 150+ 3D draws, and every frame since moved HUD pieces
+    std::unordered_set<uint32_t> hud_sticky_;  // textures moved in play: they keep moving under a popup's text
     bool gamma_ = false;
     Target* bound_rt_ = nullptr;
     Target* bound_ds_ = nullptr;
@@ -2824,6 +2832,48 @@ uint8_t* D3D12Backend::UploadVertexConstants(const State& s) {
     return vc.cpu;
 }
 
+// mechassault-recomp patch: in widescreen, a HUD piece at the side of the 4:3 picture moves out to the screen's edge,
+// keeping its distance from it, instead of staying beside the middle: how far, in target pixels before the squeeze
+// (gpu/widescreen.h). Only in play (a frame drew 150 or more 3D draws into a 4:3 target, menus and 'Mech select draw
+// few, and each frame since has moved HUD pieces, as a paused game's do) and only for flat XYZRHW draws of a texture drawn once a frame, wholly in the outer 36% of a side, before any
+// text: text and framed boxes draw one texture many times (each glyph, each frame piece), and what is drawn after them
+// stays with them (a popup's button icon) unless it is a HUD piece already moved in play (a paused game draws the HUD
+// after its popup). So a message box, subtitles and their icons keep the 4:3 layout, and two-player splitscreen (each
+// texture drawn twice) too.
+float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
+    const Assembled& a = asm_;
+    if (!a.pretransformed) {
+        if (factor != 1.0f) hud_3d_now_++;
+        return 0;
+    }
+    uint32_t tex = s.textures[0];
+    hud_tex_now_[tex]++;
+    auto last = hud_tex_last_.find(tex);
+    uint32_t uses = last == hud_tex_last_.end() ? 1 : last->second;
+    if (uses > 1) hud_text_ = true;
+    if (factor == 1.0f || uses > 1 || (hud_text_ && !hud_sticky_.count(tex)) || !hud_play_ || !app::Get().hud_edges ||
+        !size.w)
+        return 0;
+    const VertexElement& e = a.elements[0];
+    const VertexBuffer& b = a.buffers[e.buffer];
+    if (!b.src || !b.stride || e.format != DXGI_FORMAT_R32G32B32A32_FLOAT) return 0;
+    float lo = 1e30f, hi = -1e30f;
+    for (uint32_t off = e.offset; off + 4 <= b.bytes; off += b.stride) {
+        float x;
+        std::memcpy(&x, b.src + off, 4);
+        lo = std::min(lo, x);
+        hi = std::max(hi, x);
+    }
+    float w = float(size.w);
+    float out = 0.5f * w * (1.0f / factor - 1.0f);
+    float shift = lo > 0.5f && hi <= 0.36f * w ? -out : hi < w - 0.5f && lo >= 0.64f * w ? out : 0.0f;
+    if (shift != 0) {
+        hud_moved_++;
+        hud_sticky_.insert(tex);
+    }
+    return shift;
+}
+
 void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const PsoKey& k, const DrawTextures& stages,
                                    GuestExtent size, DrawConstants& c) {
     // the extension edits the uploaded copy, so its draws always get their own
@@ -2847,6 +2897,7 @@ void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const 
         TextureDesc movie;
         c.wide[1] = s.textures[0] && Describe(s.textures[0], movie) && gpu::wide::MovieFormat(movie.format) ? 1.0f : 0.0f;
     }
+    c.wide[2] = HudShift(s, size, c.wide[0]);
     if (sh.fixed_transform) {
         FillTransformConstants(s, size, c);
         FillLightConstants(s, sh.fk, c);
@@ -3881,6 +3932,12 @@ void D3D12Backend::Present(const Surface& front) {
     }
     ResizeSwap();
     gpu::wide::SetView(app::WideView());  // breakdown-recomp patch: the next frame's draws
+    hud_tex_last_.swap(hud_tex_now_);  // mechassault-recomp patch: HudShift's frame
+    hud_tex_now_.clear();
+    hud_play_ = hud_3d_now_ >= 150 || (hud_play_ && hud_moved_);  // a paused game's popup keeps the HUD where it was
+    if (!hud_play_) hud_sticky_.clear();
+    hud_3d_now_ = hud_moved_ = 0;
+    hud_text_ = false;
     Target* t = EnsureTarget(front, false);
     if (t && LatchCpuWrite(*t)) UploadTarget(*t, front);
     if (t) Resolve(*t);

@@ -397,6 +397,12 @@ void Menu() {
                                         : "Shows more of the scene at the sides in this shape, with bars if your "
                                           "screen's shape differs. The HUD, menus and movies stay 4:3.");
                 ImGui::PopTextWrapPos();
+                // mechassault-recomp patch: where the HUD goes (d3d12 HudShift)
+                bool edges = s.hud_edges;
+                if (Choice<bool>("HUD", edges, {{"At the screen's sides", true}, {"Around the middle (4:3)", false}})) {
+                    s.hud_edges = edges;
+                    Changed();
+                }
             }
             // breakdown-recomp patch: Fullscreen can switch the display to a rate 60 fps divides evenly
             if (s.display_mode == DisplayMode::Fullscreen) {
@@ -509,6 +515,7 @@ void Menu() {
             s.aspect_ratio = d.aspect_ratio;
             s.upscaler = d.upscaler;
             s.brightness = d.brightness;
+            s.hud_edges = d.hud_edges;
             s.fsr_sharpness = d.fsr_sharpness;
             Changed(true);
         }

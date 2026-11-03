@@ -1,0 +1,17 @@
+# Mission 1 in a 21:9 window, then 16:9, in Widescreen: the HUD at the screen's sides (hud_edges)
+14 start 200
+18 a 200
+22 a 200
+30 a 200
+34 start 200
+38 a 200
+45 a 200
+52 a 200
+58 a 200
+62 set width 1680
+62 set height 720
+62 set aspect_ratio 1
+72 ly 30000 3000
+78 set width 1600
+78 set height 900
+86 rt 1500

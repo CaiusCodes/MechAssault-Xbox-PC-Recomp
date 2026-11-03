@@ -50,6 +50,7 @@ struct Settings {
                                           // WideView), kAspect169 or kAspectFill (the 4:3 picture stretched; they
                                           // also tell the title it is on a widescreen TV)
     std::string monitor;  // mechassault-recomp patch: the display the game is shown on (its device name), empty: main
+    bool hud_edges = true;  // mechassault-recomp patch: widescreen HUD pieces at the screen's sides (d3d12 HudShift)
 };
 // mechassault-recomp patch: the displays to choose from (Settings::monitor), and the chosen one (an HMONITOR: the
 // setting's display if it is connected, else the window's)

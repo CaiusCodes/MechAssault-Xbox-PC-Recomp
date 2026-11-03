@@ -231,7 +231,7 @@ const char* kVsEpilogue = R"(
     if (surf.w == 0 && abs(p.y - (surf.y - 0.5)) < 1e-3) p.y = surf.y;
     // breakdown-recomp patch: true widescreen, flat vertices back to 4:3 in the middle (gpu/widescreen.h)
     if (wide.x > 0 && wide.x != 1 && p.w == 1 && (wide.y != 0 || (p.x > 0.5 && p.x < surf.x - 0.5)))
-        p.x = surf.x * 0.5 + (p.x - surf.x * 0.5) * wide.x;
+        p.x = surf.x * 0.5 + (p.x + wide.z - surf.x * 0.5) * wide.x;  // mechassault-recomp patch: z, HudShift
     q.x = p.x * 2 / surf.x - 1;
     q.y = 1 - p.y * 2 / surf.y;
     q.z = p.z * surf.z;

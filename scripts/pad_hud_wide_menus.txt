@@ -1,0 +1,14 @@
+# Widescreen 16:9 from the title on: menus, briefing, 'Mech select and Mission 1's first popup keep their layout,
+# the in-play HUD goes to the sides (hud_edges)
+5 set width 1600
+5 set height 900
+5 set aspect_ratio 1
+14 start 200
+18 a 200
+22 a 200
+30 a 200
+34 start 200
+38 a 200
+45 a 200
+52 a 200
+58 a 200
