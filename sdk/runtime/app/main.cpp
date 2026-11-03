@@ -88,14 +88,17 @@ void DumpThreads() {
 // window thread only
 void ApplyNow() {
     const Settings& s = Get();
-    HMONITOR mon = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTOPRIMARY);
+    // mechassault-recomp patch: the chosen display (Settings::monitor); a mode set on another one goes back first
+    static std::wstring mode_device;
+    HMONITOR mon = static_cast<HMONITOR>(ChosenMonitor());
     MONITORINFOEXW mi{};
     mi.cbSize = sizeof(mi);
     GetMonitorInfoW(mon, &mi);
     if (g_mode_changed) {
-        ChangeDisplaySettingsExW(mi.szDevice, nullptr, nullptr, 0, nullptr);
+        ChangeDisplaySettingsExW(mode_device.empty() ? mi.szDevice : mode_device.c_str(), nullptr, nullptr, 0, nullptr);
         g_mode_changed = false;
     }
+    mode_device = mi.szDevice;
     Mode out = Output();
     LONG_PTR visible = IsWindowVisible(g_hwnd) ? WS_VISIBLE : 0;  // a window held back for a splash or handover stays so
     DEVMODEW desktop{};

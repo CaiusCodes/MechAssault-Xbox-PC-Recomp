@@ -145,7 +145,8 @@ not looked at. Render scale Auto renders as many pixels as the picture is wide, 
 | V-Sync, frame-rate limit | immediately |
 | Render scale | immediately (targets recreated, session kept) |
 | Anti-aliasing, anisotropic filtering, upscaling (FSR 1) and its sharpening | immediately |
-| Aspect ratio | immediately (next camera build and frame) |
+| Monitor | immediately (the window moves there, at that display's desktop resolution); keep-or-revert prompt |
+| Aspect ratio: Widescreen (your screen's shape), 16:9 widescreen, 21:9 ultrawide, 4:3, 16:9 stretched, fill | immediately (next camera build and frame) |
 | Performance overlay, frame-timing log | immediately |
 | Mouse aim, sensitivity, invert, key bindings | immediately |
 
@@ -155,7 +156,12 @@ window 1280x960 -> 1600x900 -> 1280x960, FSR off/on, brightness 130% and back, F
 no crash, the mission carried on; 60 fps throughout with the worst frame 35 ms at a render-scale switch
 (`runs\live1&.png`: the 1600x900 window in Widescreen).
 
-Nothing needs a restart. Monitor selection is "the monitor the window is on". Brightness: F1 >
+Nothing needs a restart. F1 > Display > Monitor picks the display (Automatic: the one the window opens on); this PC
+has one display, so moving between two was not tried. 16:9 widescreen and 21:9 ultrawide are true widescreen in a
+fixed shape, with bars when the screen's shape differs: verified live in a 1600x900 window
+(`scripts\pad_settings_menu.txt`, `runs\menu_settings\035` 16:9 filling it, `037` 21:9 letterboxed, `032` the menu).
+"Use recommended settings" (end of the menu) restores the measured defaults: borderless at the desktop resolution,
+render scale Auto (at most 2x on integrated graphics), FXAA, FSR 1, V-Sync, 60 fps, widescreen. Brightness: F1 >
 Display > Brightness (50-200%), a gamma curve applied through the renderer's gamma ramp on the finished picture
 (the title's own ramp, when it sets one, is bent the same way); live. Field of view: F1 > Gameplay > Field of
 view, 80-130% of the game's own (default 100%), through the same camera hook as widescreen, so culling follows;

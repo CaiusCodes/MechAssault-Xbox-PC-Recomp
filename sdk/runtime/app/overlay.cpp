@@ -39,11 +39,12 @@ struct Resolution {
     bool operator==(const Resolution&) const = default;
 };
 
-// the window's monitor's modes, largest first, 640x480 and up
+// the chosen monitor's modes, largest first, 640x480 and up (mechassault-recomp patch: ChosenMonitor, so a display
+// just picked lists its own before the window has moved there)
 std::vector<Resolution> Resolutions() {
     MONITORINFOEXW mi{};
     mi.cbSize = sizeof(mi);
-    GetMonitorInfoW(MonitorFromWindow(static_cast<HWND>(Window()), MONITOR_DEFAULTTOPRIMARY), &mi);
+    GetMonitorInfoW(static_cast<HMONITOR>(ChosenMonitor()), &mi);
     std::vector<Resolution> out;
     DEVMODEW dm{};
     dm.dmSize = sizeof(dm);
@@ -61,7 +62,7 @@ std::vector<Resolution> Resolutions() {
 std::vector<uint32_t> RefreshRates(uint32_t w, uint32_t h) {
     MONITORINFOEXW mi{};
     mi.cbSize = sizeof(mi);
-    GetMonitorInfoW(MonitorFromWindow(static_cast<HWND>(Window()), MONITOR_DEFAULTTOPRIMARY), &mi);
+    GetMonitorInfoW(static_cast<HMONITOR>(ChosenMonitor()), &mi);
     DEVMODEW dm{};
     dm.dmSize = sizeof(dm);
     if (!w || !h) {
@@ -350,8 +351,25 @@ void Menu() {
                                      {"Borderless", DisplayMode::Borderless},
                                      {"Windowed", DisplayMode::Windowed}}))
                 DisplayChanged(before);
+            // mechassault-recomp patch: which display; a new one starts at its desktop resolution and rate
+            static std::vector<Monitor> monitors;
+            bool new_monitor = false;
+            if (ImGui::IsWindowAppearing() || monitors.empty()) monitors = Monitors();
+            {
+                std::vector<std::pair<std::string, std::string>> list{{"Automatic", ""}};
+                for (const Monitor& m : monitors)
+                    list.push_back({"Display " + std::to_string(m.number) + "  (" + std::to_string(m.width) + " x " +
+                                        std::to_string(m.height) + (m.primary ? ", main)" : ")"),
+                                    m.device});
+                if (Choice<std::string>("Monitor", s.monitor, list)) {
+                    s.width = s.height = 0;
+                    s.refresh_hz = 0;
+                    new_monitor = true;
+                    DisplayChanged(before);
+                }
+            }
             static std::vector<Resolution> modes;
-            if (ImGui::IsWindowAppearing() || modes.empty()) modes = Resolutions();
+            if (ImGui::IsWindowAppearing() || modes.empty() || new_monitor) modes = Resolutions();
             std::vector<std::pair<std::string, Resolution>> res{{"Desktop", {0, 0}}};
             for (auto& m : modes) res.push_back({std::to_string(m.w) + " x " + std::to_string(m.h), m});
             Resolution cur{s.width, s.height};
@@ -364,16 +382,20 @@ void Menu() {
             // (src/game/widescreen.cpp), the stretched shapes stretch the 4:3 picture
             if (Choice<uint32_t>("Aspect ratio", s.aspect_ratio,
                                  {{"Widescreen (fits your screen)", kAspectWide},
+                                  {"16:9 widescreen", kAspectWide169},
+                                  {"21:9 ultrawide", kAspectWide219},
                                   {"4:3, as on the Xbox", kAspect43},
                                   {"16:9, stretched", kAspect169},
                                   {"Fill the screen, stretched", kAspectFill}}))
                 Changed();
-            if (s.aspect_ratio == kAspectWide)
+            if (s.aspect_ratio == kAspectWide || s.aspect_ratio == kAspectWide169 || s.aspect_ratio == kAspectWide219)
             {
                 ImGui::PushTextWrapPos(0);
-                ImGui::TextDisabled("Shows more of the scene at the sides in your screen's shape, up to 32:9. The HUD, "
-                                    "menus and movies stay 4:3. A change can take until the next scene to reach the "
-                                    "3D view.");
+                ImGui::TextDisabled(s.aspect_ratio == kAspectWide
+                                        ? "Shows more of the scene at the sides in your screen's shape, up to 32:9. "
+                                          "The HUD, menus and movies stay 4:3."
+                                        : "Shows more of the scene at the sides in this shape, with bars if your "
+                                          "screen's shape differs. The HUD, menus and movies stay 4:3.");
                 ImGui::PopTextWrapPos();
             }
             // breakdown-recomp patch: Fullscreen can switch the display to a rate 60 fps divides evenly
@@ -461,7 +483,16 @@ void Menu() {
         }
         if (kGame.menu) kGame.menu();  // breakdown-recomp patch: the game's sections
         ImGui::Spacing();
-        if (ImGui::Button("Reset video settings")) {
+        // mechassault-recomp patch: the defaults are the recommended settings, measured (GRAPHICS_AND_PERFORMANCE.md);
+        // Auto render scale adapts to the GPU found
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextDisabled(LowEndGpu() ? "Recommended for this PC (integrated graphics found): borderless at your "
+                                          "desktop resolution, render scale Auto up to 2x, FXAA, FSR 1, V-Sync, 60 fps, "
+                                          "widescreen."
+                                        : "Recommended for this PC: borderless at your desktop resolution, render scale "
+                                          "Auto, FXAA, FSR 1, V-Sync, 60 fps, widescreen.");
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button("Use recommended settings")) {
             Settings d;
             s.display_mode = d.display_mode;
             s.width = d.width;

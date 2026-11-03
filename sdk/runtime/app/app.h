@@ -20,6 +20,8 @@ enum class DisplayMode : uint32_t { Fullscreen, Borderless, Windowed };
 inline constexpr uint32_t kFpsCapRefresh = 1;  // fps_cap: the monitor's refresh rate
 // breakdown-recomp patch: aspect_ratio values
 inline constexpr uint32_t kAspect43 = 0, kAspectWide = 1, kAspect169 = 2, kAspectFill = 3;
+// mechassault-recomp patch: true widescreen in a fixed shape whatever the display's (bars on the other one)
+inline constexpr uint32_t kAspectWide169 = 4, kAspectWide219 = 5;
 
 struct Settings {
     DisplayMode display_mode = DisplayMode::Borderless;
@@ -47,7 +49,17 @@ struct Settings {
     uint32_t aspect_ratio = kAspectWide;  // the picture: kAspect43, kAspectWide (a wider view in the display's shape,
                                           // WideView), kAspect169 or kAspectFill (the 4:3 picture stretched; they
                                           // also tell the title it is on a widescreen TV)
+    std::string monitor;  // mechassault-recomp patch: the display the game is shown on (its device name), empty: main
 };
+// mechassault-recomp patch: the displays to choose from (Settings::monitor), and the chosen one (an HMONITOR: the
+// setting's display if it is connected, else the window's)
+struct Monitor {
+    std::string device;  // \\.\DISPLAYn
+    uint32_t number, width, height;
+    bool primary;
+};
+std::vector<Monitor> Monitors();
+void* ChosenMonitor();
 inline constexpr uint32_t kMaxRenderScale = 4;
 // breakdown-recomp patch: the PC settings menu (overlay.cpp) is open: the title gets no pad input
 bool MenuOpen();

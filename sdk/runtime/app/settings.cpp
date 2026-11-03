@@ -61,7 +61,8 @@ void Load() {
     s.vblank_sync = std::min(t["vblank_sync"].value_or(s.vblank_sync), 1u);
     s.anti_aliasing = std::min(t["anti_aliasing"].value_or(s.anti_aliasing), 1u);
     s.refresh_hz = std::min(t["refresh_rate"].value_or(s.refresh_hz), 1000u);
-    s.aspect_ratio = std::min(t["aspect_ratio"].value_or(s.aspect_ratio), kAspectFill);
+    s.aspect_ratio = std::min(t["aspect_ratio"].value_or(s.aspect_ratio), kAspectWide219);
+    s.monitor = t["monitor"].value_or(s.monitor);
     s.upscaler = std::min(t["upscaler"].value_or(s.upscaler), 1u);  // mechassault-recomp patch: FSR
     s.fsr_sharpness = std::min(t["fsr_sharpness"].value_or(s.fsr_sharpness), 20u);
     s.brightness = std::clamp(t["brightness"].value_or(s.brightness), 50u, 200u);
@@ -97,7 +98,8 @@ toml::table Table() {
                   {"aspect_ratio", int64_t(s.aspect_ratio)},
                   {"upscaler", int64_t(s.upscaler)},
                   {"fsr_sharpness", int64_t(s.fsr_sharpness)},
-                  {"brightness", int64_t(s.brightness)}};
+                  {"brightness", int64_t(s.brightness)},
+                  {"monitor", s.monitor}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));
@@ -120,6 +122,59 @@ void LogSettings() {
     LOGR("Settings:");
     for (std::string line; std::getline(lines, line);)
         if (!line.empty()) LOGR("  %s", line.c_str());
+}
+
+std::vector<Monitor> Monitors() {
+    std::vector<Monitor> list;
+    EnumDisplayMonitors(
+        nullptr, nullptr,
+        [](HMONITOR mon, HDC, LPRECT, LPARAM p) -> BOOL {
+            MONITORINFOEXW mi{};
+            mi.cbSize = sizeof(mi);
+            if (!GetMonitorInfoW(mon, &mi)) return TRUE;
+            Monitor m{};
+            for (const wchar_t* c = mi.szDevice; *c; c++) m.device += char(*c < 0x80 ? *c : '?');
+            size_t digits = m.device.find_last_not_of("0123456789") + 1;
+            m.number = digits < m.device.size() ? uint32_t(std::stoul(m.device.substr(digits))) : 0;
+            DEVMODEW dm{};
+            dm.dmSize = sizeof(dm);
+            if (EnumDisplaySettingsW(mi.szDevice, ENUM_REGISTRY_SETTINGS, &dm)) {
+                m.width = dm.dmPelsWidth;
+                m.height = dm.dmPelsHeight;
+            }
+            m.primary = mi.dwFlags & MONITORINFOF_PRIMARY;
+            reinterpret_cast<std::vector<Monitor>*>(p)->push_back(m);
+            return TRUE;
+        },
+        LPARAM(&list));
+    std::sort(list.begin(), list.end(), [](const Monitor& a, const Monitor& b) { return a.number < b.number; });
+    return list;
+}
+
+void* ChosenMonitor() {
+    const std::string& want = Get().monitor;
+    HMONITOR found = nullptr;
+    if (!want.empty()) {
+        struct Find {
+            const std::string* want;
+            HMONITOR* found;
+        } f{&want, &found};
+        EnumDisplayMonitors(
+            nullptr, nullptr,
+            [](HMONITOR mon, HDC, LPRECT, LPARAM p) -> BOOL {
+                auto& f = *reinterpret_cast<Find*>(p);
+                MONITORINFOEXW mi{};
+                mi.cbSize = sizeof(mi);
+                if (!GetMonitorInfoW(mon, &mi)) return TRUE;
+                std::string device;
+                for (const wchar_t* c = mi.szDevice; *c; c++) device += char(*c < 0x80 ? *c : '?');
+                if (device != *f.want) return TRUE;
+                *f.found = mon;
+                return FALSE;
+            },
+            LPARAM(&f));
+    }
+    return found ? found : MonitorFromWindow(static_cast<HWND>(Window()), MONITOR_DEFAULTTOPRIMARY);
 }
 
 Mode Desktop() {
@@ -155,7 +210,9 @@ bool Widescreen() {
 
 float PictureAspect() {
     switch (Get().aspect_ratio) {
-        case kAspectWide: return 4.0f / 3.0f * WideView();
+        case kAspectWide:
+        case kAspectWide169:
+        case kAspectWide219: return 4.0f / 3.0f * WideView();
         case kAspect169: return 16.0f / 9.0f;
         case kAspectFill: return 0;
         default: return 4.0f / 3.0f;
@@ -185,6 +242,9 @@ Mode CachedOutput() {
 }
 
 float WideView() {
+    // mechassault-recomp patch: the fixed shapes, letterboxed or pillarboxed on a display of another
+    if (Get().aspect_ratio == kAspectWide169) return (16.0f / 9.0f) / (4.0f / 3.0f);
+    if (Get().aspect_ratio == kAspectWide219) return (21.0f / 9.0f) / (4.0f / 3.0f);
     if (Get().aspect_ratio != kAspectWide) return 1;
     Mode m = CachedOutput();
     if (!m.width || !m.height) return 1;

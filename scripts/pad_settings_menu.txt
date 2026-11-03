@@ -1,0 +1,21 @@
+# Mission 1 with the F1 menu open (its Display section: monitor, resolution, aspect, ...), then the fixed 16:9 and
+# 21:9 widescreen shapes in a 1600x900 window (16:9 fills it, 21:9 is letterboxed), then back
+14 start 200
+18 a 200
+22 a 200
+30 a 200
+34 start 200
+38 a 200
+45 a 200
+52 a 200
+58 a 200
+66 menu
+71 menu
+72 set width 1600
+72 set height 900
+73 set aspect_ratio 4
+77 set aspect_ratio 5
+81 set aspect_ratio 1
+85 set width 1280
+85 set height 960
+85 set aspect_ratio 0
