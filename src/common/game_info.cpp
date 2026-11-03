@@ -88,10 +88,12 @@ const app::GameInfo app::kGame = {
     .pad = Pad,  // keyboard and mouse buttons as pad 1, rebindable; XBE_PAD_SCRIPT for test runs
     .rumble = nullptr,
     .profile = &mechassault::Profile(),  // src/common/profile.cpp
-    .extras = {{L"Mouse aim", L"Turn the torso and aim with the mouse. The keyboard and a controller always work too.",
+    .extras = {{L"Mouse aim", L"Turn your 'Mech and aim with the mouse. The keyboard and a controller always work too.",
                 &mechassault::g_mouse_aim},
                {L"Unlock the whole campaign", L"Every mission and movie playable from the mission select at once.",
-                &mechassault::g_unlock_campaign}},
+                &mechassault::g_unlock_campaign},
+               {L"Online games", L"Host and join System Link games over the internet, in the game's own menu.",
+                &app::Get().online_games}},
     .languages = {{L"English", 1}, {L"Français", 4}, {L"Deutsch", 3}},  // the disc's (En, Fr, De)
     .controls = L"Mouse aim · WASD move · Left click fire · Right click or Q cycle weapons · "
                 L"1 2 3 energy, ballistic, missile · Space jump jets · Shift defense · Esc pause",

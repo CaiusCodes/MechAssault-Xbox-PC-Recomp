@@ -68,6 +68,8 @@ void Load() {
     s.language = std::clamp(t["language"].value_or(s.language), 1u, 9u);
     s.sharpen = std::min(t["sharpening"].value_or(s.sharpen), 20u);
     s.texture_detail = std::min(t["texture_detail"].value_or(s.texture_detail), 15u);
+    s.online_games = t["online_games"].value_or(s.online_games);
+    s.lobby_url = t["lobby_url"].value_or(s.lobby_url);
     s.upscaler = std::min(t["upscaler"].value_or(s.upscaler), 1u);  // mechassault-recomp patch: FSR
     s.fsr_sharpness = std::min(t["fsr_sharpness"].value_or(s.fsr_sharpness), 20u);
     s.brightness = std::clamp(t["brightness"].value_or(s.brightness), 50u, 200u);
@@ -109,7 +111,9 @@ toml::table Table() {
                   {"lan_adapter", s.lan_adapter},
                   {"language", int64_t(s.language)},
                   {"sharpening", int64_t(s.sharpen)},
-                  {"texture_detail", int64_t(s.texture_detail)}};
+                  {"texture_detail", int64_t(s.texture_detail)},
+                  {"online_games", s.online_games},
+                  {"lobby_url", s.lobby_url}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));

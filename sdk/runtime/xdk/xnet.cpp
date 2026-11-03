@@ -25,6 +25,7 @@
 
 #include "app/app.h"
 #include "xdk/hle.h"
+#include "xdk/online.h"  // mechassault-recomp patch
 
 using kernel::HostPtr;
 using kernel::R32;
@@ -34,6 +35,7 @@ namespace {
 
 // XNADDR: ina, inaOnline, wPortOnline, abEnet[6], abOnline[20]
 constexpr uint32_t kXnAddrSize = 0x24;
+constexpr uint32_t kXnAddrOnline = 0x04;
 constexpr uint32_t kXnAddrEnet = 0x0A;
 // WSAOVERLAPPED: Internal, InternalHigh, Offset, OffsetHigh, hEvent
 constexpr uint32_t kOvlStatus = 0x00;
@@ -79,6 +81,8 @@ int g_instance = 0;
 uint32_t g_local = 0;  // network order
 uint32_t g_bcast = 0;  // mechassault-recomp patch: the chosen adapter's subnet broadcast, 0 automatic
 std::array<uint8_t, 8> g_kid{};
+std::array<uint8_t, 8> g_hosted{};  // mechassault-recomp patch: the key of the session this PC hosts (XNetCreateKey)
+bool g_hosting = false;
 std::unordered_map<uint32_t, std::array<uint8_t, kXnAddrSize>> g_peers;
 
 thread_local uint32_t t_error = 0;
@@ -163,6 +167,7 @@ void Init(bool refresh = false) {
         WSAStartup(MAKEWORD(2, 2), &wsa);
         g_instance = app::Instance();
         std::thread(Pump).detach();
+        online::Prepare();  // mechassault-recomp patch
     });
     // mechassault-recomp patch: the address again at every startup (entering System Link), so a change of adapter in
     // F1 > Network applies from the next visit
@@ -231,6 +236,30 @@ std::vector<Span> Spans(uint32_t bufs, uint32_t count) {
     return v;
 }
 
+// mechassault-recomp patch: a datagram that carries its sender's own XNADDR (a search reply, a join request) tells
+// what that machine reports for itself, so XNetInAddrToXnAddr gives back exactly that for its address. The copies
+// here all have the same shape (XnAddrOf): the MAC is 00:50:F2 and the LAN address's last three bytes. One is its
+// sender's when its LAN address (a peer on this network) or its public address (inaOnline, a peer on the internet)
+// is the address the datagram came from; a host's player list carries other players' too, which are left alone.
+void LearnXnAddr(uint32_t from, const uint8_t* p, int n) {
+    for (int i = 0; i + int(kXnAddrSize) <= n; i++) {
+        const uint8_t* x = p + i;
+        const uint8_t* mac = x + kXnAddrEnet;
+        if (mac[0] != 0x00 || mac[1] != 0x50 || mac[2] != 0xF2 || mac[3] != x[1] || mac[4] != x[2] || mac[5] != x[3])
+            continue;
+        uint32_t ina, online;
+        std::memcpy(&ina, x, 4);
+        std::memcpy(&online, x + kXnAddrOnline, 4);
+        if (!ina || (ina != from && online != from) || ina == g_local) continue;
+        auto& known = g_peers[from];
+        if (std::memcmp(known.data(), x, kXnAddrSize) != 0) {
+            std::memcpy(known.data(), x, kXnAddrSize);
+            LOGI("xnet: %s is %s on its own network", Ip(from).c_str(), Ip(ina).c_str());
+        }
+        i += int(kXnAddrSize) - 1;
+    }
+}
+
 // one datagram into guest buffers: bytes, or -1 with err
 int Recv(uint32_t sock, SOCKET s, const std::vector<Span>& spans, uint32_t from, uint32_t fromlen, int& err) {
     thread_local std::vector<uint8_t> buf(65536);
@@ -252,6 +281,7 @@ int Recv(uint32_t sock, SOCKET s, const std::vector<Span>& spans, uint32_t from,
     if (done < n) LOG_FIRST(10, "xnet: %d byte datagram cut to %d", n, done);
     if (NetLog()) LOGR("xnet: %X got %d from %s", sock, n, Addr(src).c_str());
     uint32_t peer = src.sin_addr.s_addr;
+    LearnXnAddr(peer, buf.data(), n);
     if (peer != g_local && !Private(peer)) {
         if (g_remote.exchange(peer) != peer) LOGI("xnet: peer %s", Addr(src).c_str());
         auto it = g_sockets.find(sock);
@@ -281,6 +311,11 @@ int SendOnce(SOCKET s, const uint8_t* data, int len, const sockaddr_in* to) {
             also.push_back(d);
             also.back().sin_addr.s_addr = join;
         }
+        // mechassault-recomp patch: a System Link search also asks the games listed online (xdk/online.h)
+        for (const online::Peer& h : online::Hosts()) {
+            also.push_back(d);
+            also.back().sin_addr.s_addr = h.address;
+        }
         {
             std::lock_guard<std::mutex> lock(g_nat_lock);
             for (uint32_t peer : g_public) {
@@ -296,6 +331,10 @@ int SendOnce(SOCKET s, const uint8_t* data, int len, const sockaddr_in* to) {
         auto it = g_nat.find(NatKey(d.sin_addr.s_addr, d.sin_port));
         if (it != g_nat.end()) d.sin_port = it->second;
     }
+    // mechassault-recomp patch: XBE_NO_LAN=1 (tests) keeps broadcasts off the LAN and the other loopback copies, so
+    // only the join address and the games listed online hear a search
+    static const bool no_lan = std::getenv("XBE_NO_LAN") != nullptr;
+    if (no_lan && d.sin_addr.s_addr == INADDR_BROADCAST) return len;
     if (g_instance && d.sin_addr.s_addr == INADDR_BROADCAST) {
         for (int i = 1; i <= kLoopbackInstances; i++) {
             if (i == g_instance) continue;
@@ -383,7 +422,26 @@ void XnAddrOf(uint32_t ina, uint8_t* x) {
     const uint8_t mac[6] = {0x00, 0x50, 0xF2, uint8_t(ina >> 8), uint8_t(ina >> 16), uint8_t(ina >> 24)};
     std::memcpy(x + kXnAddrEnet, mac, 6);
 }
-void OwnXnAddr(uint8_t* x) { XnAddrOf(g_local, x); }
+// mechassault-recomp patch: with online games on, the public address too (inaOnline), so a peer on the internet
+// reaches this PC by it (XNetXnAddrToInAddr) while one on its LAN keeps using the LAN address
+void OwnXnAddr(uint8_t* x) {
+    XnAddrOf(g_local, x);
+    if (!g_instance && online::Enabled()) {
+        uint32_t pub = online::PublicAddress();
+        std::memcpy(x + kXnAddrOnline, &pub, 4);
+    }
+}
+
+// mechassault-recomp patch: the session this PC hosts began or ended, or its game bound another port meanwhile:
+// listed online with every UDP port its game has bound (each opened on the router); with g_lock held
+void HostingChanged() {
+    std::vector<uint16_t> ports;
+    for (auto& [id, k] : g_sockets)
+        if (k.udp && k.port) ports.push_back(k.port);
+    std::sort(ports.begin(), ports.end(), [](uint16_t x, uint16_t y) { return ntohs(x) < ntohs(y); });
+    ports.erase(std::unique(ports.begin(), ports.end()), ports.end());
+    online::Hosting(g_hosting, g_local, ports.empty() ? 0 : ports.front(), ports);
+}
 
 void Random(uint32_t va, uint32_t n) {
     static std::mutex m;
@@ -431,6 +489,12 @@ HLE_STDCALL(XNetCreateKey, 2) {
     Random(a[0], 8);
     Random(a[1], 16);
     kernel::G<uint8_t>(a[0]) &= 0x0F;
+    // mechassault-recomp patch: only a host makes the session's key; a joiner registers the one the host sent
+    std::lock_guard<std::mutex> lock(g_lock);
+    std::memcpy(g_hosted.data(), HostPtr(a[0]), 8);
+    g_hosting = true;
+    LOGI("xnet: hosting a session");
+    HostingChanged();
     return 0;
 }
 HLE_STDCALL(XNetRegisterKey, 2) {
@@ -438,7 +502,15 @@ HLE_STDCALL(XNetRegisterKey, 2) {
     std::memcpy(g_kid.data(), HostPtr(a[0]), 8);
     return 0;
 }
-HLE_STDCALL(XNetUnregisterKey, 1) { return 0; }
+HLE_STDCALL(XNetUnregisterKey, 1) {
+    std::lock_guard<std::mutex> lock(g_lock);
+    if (g_hosting && std::memcmp(HostPtr(a[0]), g_hosted.data(), 8) == 0) {
+        g_hosting = false;
+        LOGI("xnet: the hosted session ended");
+        HostingChanged();
+    }
+    return 0;
+}
 // mechassault-recomp patch: the secure connection to a peer is the plain address here, so it is up at once
 // (XNET_CONNECT_STATUS_CONNECTED)
 HLE_STDCALL(XNetGetConnectStatus, 1) { return 2; }
@@ -451,7 +523,13 @@ HLE_STDCALL(XNetGetTitleXnAddr, 1) {
 HLE_STDCALL(XNetXnAddrToInAddr, 3) {
     uint32_t ina = R32(a[0]);
     if (!ina) return WSAEINVAL;
-    if (ina != g_local && Private(ina) && !g_instance) {
+    // mechassault-recomp patch: a peer on the internet (online games) by its public address, unless it is behind this
+    // PC's own router (the same public address), where its LAN one reaches it
+    uint32_t online_ina = R32(a[0] + kXnAddrOnline);
+    if (ina != g_local && Private(ina) && !g_instance && online_ina && !Private(online_ina) &&
+        online_ina != online::PublicAddress()) {
+        ina = online_ina;
+    } else if (ina != g_local && Private(ina) && !g_instance) {
         uint32_t join = JoinAddress(), remote = g_remote;
         if (join && !Private(join)) ina = join;
         else if (remote) ina = remote;
@@ -607,6 +685,7 @@ HLE_STDCALL(bind, 3) {
     ::getsockname(k.s, reinterpret_cast<sockaddr*>(&me), &len);
     std::lock_guard<std::mutex> lock(g_lock);
     if (auto it = g_sockets.find(a[0]); it != g_sockets.end()) it->second.port = me.sin_port;
+    if (g_hosting) HostingChanged();
     return 0;
 }
 HLE_STDCALL(connect, 3) {

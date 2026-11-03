@@ -3037,6 +3037,24 @@ void D3D12Backend::CaptureDraw(const State& s, uint32_t prim, uint32_t count, co
             k.src, k.dst, k.zen, k.zfunc, k.zwrite, k.zbias, k.zslope, k.cull, k.wmask, c.pc[0][0], c.pc[0][1],
             c.pc[0][2], c.pc[0][3]);
     CaptureTextures(s, stages);
+    // mechassault-recomp patch: fixed function stages that generate coordinates or transform them: the generation
+    // (D3DTSS_TEXCOORDINDEX's high word), the transform flags and matrix, and the view they are relative to
+    if (!(s.vs_handle & 1)) {
+        bool any = false;
+        for (int t = 0; t < 4; t++) {
+            uint32_t tci = s.tss[size_t(t)][kTssTexCoordIndex], ttf = s.tss[size_t(t)][kTssTextureTransformFlags];
+            if (!(tci >> 16) && !ttf) continue;
+            const float* m = s.transforms[16 + size_t(t)].data();
+            fprintf(cap_, "\n     t%d gen %X set %X ttf %X tm", t, tci >> 16, tci & 0xFFFF, ttf);
+            for (int i = 0; i < 16; i++) fprintf(cap_, " %.3f", m[i]);
+            any = true;
+        }
+        if (any) {
+            const float* v = s.transforms[2].data();
+            fprintf(cap_, "\n     view");
+            for (int i = 0; i < 16; i++) fprintf(cap_, " %.3f", v[i]);
+        }
+    }
 }
 
 // small draws: their inputs and constants; then ends the draw's line

@@ -1,0 +1,13 @@
+# MechAssault PC online game list (tools/lobby/README.md). Deployed with: npx wrangler deploy
+name = "mechassault-lobby"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "Lobby"
+
+# the free plan's Durable Objects are the SQLite-backed kind (the list itself stays in memory)
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Lobby"]

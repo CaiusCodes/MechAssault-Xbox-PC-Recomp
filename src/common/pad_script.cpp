@@ -170,14 +170,16 @@ void ScriptPad(int port, input::Pad& pad) {
             std::string path = std::string(dir ? dir : "captures") + "\\mem_" + st.key + ".bin";
             if (FILE* f = std::fopen(path.c_str(), "wb")) {
                 // "memdump <tag> 1": every committed page of the 64 MB instead, the heap's objects too
-                const uint32_t lo = st.value == 1 ? 0x10000 : 0x2E0000, hi = st.value == 1 ? 0x4000000 : 0x53A8A0;
+                // "memdump <tag> 2": the contiguous memory window (0x80000000 up), where textures and targets live
+                const uint32_t lo = st.value == 2 ? 0x80000000u : st.value == 1 ? 0x10000 : 0x2E0000,
+                               hi = st.value == 2 ? 0x84000000u : st.value == 1 ? 0x4000000 : 0x53A8A0;
                 for (uint32_t va = lo; va < hi;) {
-                    if (st.value == 1 && !mem::IsCommitted(va)) {
+                    if (st.value && !mem::IsCommitted(va)) {
                         va += 0x1000;
                         continue;
                     }
                     uint32_t end = va;
-                    while (end < hi && (st.value != 1 || mem::IsCommitted(end))) end = std::min(hi, end + 0x1000);
+                    while (end < hi && (!st.value || mem::IsCommitted(end))) end = std::min(hi, end + 0x1000);
                     uint32_t size = end - va;
                     std::fwrite(&va, 4, 1, f);
                     std::fwrite(&size, 4, 1, f);

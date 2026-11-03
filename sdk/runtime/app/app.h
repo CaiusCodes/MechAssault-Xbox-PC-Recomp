@@ -56,6 +56,10 @@ struct Settings {
     uint32_t language = 1;    // mechassault-recomp patch: the console language the title is told (XC_LANGUAGE, 1 English)
     uint32_t sharpen = 0;       // mechassault-recomp patch: RCAS on the finished picture when not upscaling, 0 off .. 20
     uint32_t texture_detail = 0;  // mechassault-recomp patch: mip LOD bias toward sharper levels, tenths (0 .. 15)
+    // mechassault-recomp patch: System Link games over the internet (xdk/online.h): hosted games listed, listed ones
+    // searched; lobby_url replaces the built-in list service (tools/lobby)
+    bool online_games = true;
+    std::string lobby_url;
 };
 // mechassault-recomp patch: the displays to choose from (Settings::monitor), and the chosen one (an HMONITOR: the
 // setting's display if it is connected, else the window's)
