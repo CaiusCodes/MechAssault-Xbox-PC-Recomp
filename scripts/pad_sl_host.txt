@@ -1,0 +1,24 @@
+# System Link host: main menu -> Multiplayer -> System Link -> profile -> START -> Games List -> Y (new game), then A
+# through the game setup (Destruction on Colosseum), then Launch with the joiner in
+14 start 200
+18 b 200
+20 down 150
+21.5 a 200
+27 down 150
+29 a 200
+34 a 200
+39 a 200
+44 a 200
+48 start 200
+53 a 200
+54 y 200
+59 a 200
+63 a 200
+67 a 200
+71 a 200
+75 a 200
+# Launch once the joiner is Ready
+96 a 200
+100 a 200
+125 ly 30000 4000
+130 rt 1500

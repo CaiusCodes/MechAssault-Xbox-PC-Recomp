@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <random>
 
 #include "app/app.h"
@@ -100,6 +101,12 @@ bool Private(uint32_t a) {
 }
 
 uint64_t NatKey(uint32_t address, uint16_t port) { return uint64_t(address) << 16 | port; }
+
+// mechassault-recomp patch: XBE_NETLOG=1 logs every datagram and connection (Info)
+bool NetLog() {
+    static const bool on = std::getenv("XBE_NETLOG") != nullptr;
+    return on;
+}
 
 // the F10 join address, resolved when it changes; 0 for none
 uint32_t JoinAddress() {
@@ -216,6 +223,7 @@ int Recv(uint32_t sock, SOCKET s, const std::vector<Span>& spans, uint32_t from,
         done += c;
     }
     if (done < n) LOG_FIRST(10, "xnet: %d byte datagram cut to %d", n, done);
+    if (NetLog()) LOGR("xnet: %X got %d from %s", sock, n, Addr(src).c_str());
     uint32_t peer = src.sin_addr.s_addr;
     if (peer != g_local && !Private(peer)) {
         if (g_remote.exchange(peer) != peer) LOGI("xnet: peer %s", Addr(src).c_str());
@@ -268,6 +276,7 @@ int SendOnce(SOCKET s, const uint8_t* data, int len, const sockaddr_in* to) {
 
 int Send(uint32_t sock, SOCKET s, const uint8_t* data, int len, const sockaddr_in* to) {
     int n = SendOnce(s, data, len, to);
+    if (NetLog()) LOGR("xnet: %X sent %d of %d to %s", sock, n, len, to ? Addr(*to).c_str() : "its peer");
     if (n < 0) LOG_FIRST(20, "xnet: send %X failed (%d)", sock, WSAGetLastError());
     return n;
 }
@@ -333,13 +342,15 @@ void Pump() {
     }
 }
 
-void OwnXnAddr(uint8_t* x) {
+// the XNADDR a machine at this address reports for itself
+void XnAddrOf(uint32_t ina, uint8_t* x) {
     std::memset(x, 0, kXnAddrSize);
-    std::memcpy(x, &g_local, 4);
+    std::memcpy(x, &ina, 4);
     // Microsoft's OUI, then the address's last three bytes
-    const uint8_t mac[6] = {0x00, 0x50, 0xF2, uint8_t(g_local >> 8), uint8_t(g_local >> 16), uint8_t(g_local >> 24)};
+    const uint8_t mac[6] = {0x00, 0x50, 0xF2, uint8_t(ina >> 8), uint8_t(ina >> 16), uint8_t(ina >> 24)};
     std::memcpy(x + kXnAddrEnet, mac, 6);
 }
+void OwnXnAddr(uint8_t* x) { XnAddrOf(g_local, x); }
 
 void Random(uint32_t va, uint32_t n) {
     static std::mutex m;
@@ -395,6 +406,9 @@ HLE_STDCALL(XNetRegisterKey, 2) {
     return 0;
 }
 HLE_STDCALL(XNetUnregisterKey, 1) { return 0; }
+// mechassault-recomp patch: the secure connection to a peer is the plain address here, so it is up at once
+// (XNET_CONNECT_STATUS_CONNECTED)
+HLE_STDCALL(XNetGetConnectStatus, 1) { return 2; }
 
 HLE_STDCALL(XNetGetTitleXnAddr, 1) {
     Init();
@@ -426,8 +440,11 @@ HLE_STDCALL(XNetInAddrToXnAddr, 3) {
     } else if (it != g_peers.end()) {
         std::memcpy(x, it->second.data(), kXnAddrSize);
     } else {
-        std::memset(x, 0, kXnAddrSize);
-        std::memcpy(x, &ina, 4);
+        // mechassault-recomp patch: a peer seen only by its packets gets the XNADDR it reports for itself (its MAC
+        // too), as a real XNet gives the peer's own: MechAssault's host builds its player list from these and each
+        // client finds its own entry by comparing them with XNetGetTitleXnAddr's; with the MAC missing a client took
+        // its own entry for another player, sent its join to itself and gave up ("No response from the host")
+        XnAddrOf(ina, x);
     }
     if (a[1]) std::memcpy(HostPtr(a[1]), x, kXnAddrSize);
     if (a[2]) std::memcpy(HostPtr(a[2]), g_kid.data(), 8);
@@ -563,6 +580,7 @@ HLE_STDCALL(connect, 3) {
     Socket k = Find(a[0]);
     if (k.s == INVALID_SOCKET) return Fail(WSAENOTSOCK);
     sockaddr_in to = GuestAddr(a[1]);
+    if (NetLog()) LOGR("xnet: connect %X to %s", a[0], Addr(to).c_str());
     if (::connect(k.s, reinterpret_cast<sockaddr*>(&to), sizeof(to)) == 0) return 0;
     int e = HostError();
     if (e != WSAEWOULDBLOCK || k.nonblocking) return Fail(e);
