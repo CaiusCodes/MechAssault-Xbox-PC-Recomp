@@ -289,10 +289,11 @@ void KeyboardPad(int port, input::Pad& pad) {
         } else if (now - since >= std::chrono::milliseconds(100)) {
             pending = false;
             g_menu = menu;
-            gpu::wide::g_hud_learn = !menu;  // HUD pieces are learnt in play only (d3d12 HudShift)
             LOGI("input: %s", g_menu ? "menu (clicks select and go back)" : "play (clicks fire and cycle weapons)");
         }
     }
+    gpu::wide::g_hud_learn = !g_menu;  // HUD pieces are learnt in play only (d3d12 HudShift); the build tag shows
+                                       // in menus (app/overlay.cpp)
     if (app::MenuOpen()) ClearWheel();  // the wheel scrolls the menu, not the game behind it
     // the keyboard stays plugged in while another window has focus: no "reconnect the controller" pause on alt-tab
     pad.connected = true;

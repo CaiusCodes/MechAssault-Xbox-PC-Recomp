@@ -44,6 +44,15 @@ endif()
 # mechassault-recomp: target must match library = "MechAssault.dll" in game.toml, and main.toml pulls in mechassault.toml
 add_xbe_image(MechAssault default.xbe main.toml ${GAME_PARTITIONS} game)
 
+# mechassault-recomp: the version (VERSION) and commit, shown small in the menus' corner (app/overlay.cpp)
+add_custom_target(build_info ALL
+    COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_CURRENT_SOURCE_DIR} -DOUT=${CMAKE_CURRENT_BINARY_DIR}/build_info/build_info.h
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_info.cmake
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/build_info/build_info.h)
+add_dependencies(MechAssault build_info)
+target_include_directories(MechAssault PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/build_info)
+target_compile_definitions(MechAssault PRIVATE MECHASSAULT_BUILD_INFO=1)
+
 # mechassault-recomp: no icon resource yet (res/ is empty); the window uses the default icon
 
 # mechassault-recomp: the icon (res/mechassault.rc, drawn by scripts/icon/make_icon.py), with llvm-rc beside clang or rc.exe

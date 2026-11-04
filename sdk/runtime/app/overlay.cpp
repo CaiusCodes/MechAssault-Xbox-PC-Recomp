@@ -28,6 +28,10 @@
 #include "core/frame_stats.h"
 #include "core/input.h"
 #include "core/log.h"
+#include "gpu/widescreen.h"
+#ifdef MECHASSAULT_BUILD_INFO
+#include "build_info.h"
+#endif
 
 #pragma comment(lib, "psapi.lib")
 
@@ -645,6 +649,21 @@ void ToggleMenu() {
     LOGR("settings menu %s", g_menu ? "opened" : "closed");
 }
 
+// mechassault-recomp patch: the build, small and faint in the bottom right corner while the game shows its menus
+void BuildTag() {
+#ifdef MECHASSAULT_BUILD_INFO
+    if (gpu::wide::g_hud_learn || g_menu) return;  // in play, or under the settings menu
+    ImGuiIO& io = ImGui::GetIO();
+    const char* text = "v" MECHASSAULT_VERSION "  " MECHASSAULT_COMMIT;
+    float size = ImGui::GetFontSize() * 0.9f;
+    ImVec2 t = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0, text);
+    float pad = size * 0.8f;
+    ImGui::GetForegroundDrawList()->AddText(ImGui::GetFont(), size,
+                                            ImVec2(io.DisplaySize.x - t.x - pad, io.DisplaySize.y - t.y - pad),
+                                            IM_COL32(200, 196, 192, 90), text);
+#endif
+}
+
 void DrawOverlay() {
     ImGuiIO& io = ImGui::GetIO();
     static bool styled = false;
@@ -659,6 +678,7 @@ void DrawOverlay() {
     io.FontGlobalScale = std::clamp(io.DisplaySize.y / 720.0f, 1.0f, 3.0f);
     io.MouseDrawCursor = false;
     if (uint32_t o = Get().perf_overlay) FpsCounter(o >= 2);
+    BuildTag();
     if (g_menu) Menu();
     else g_menu_drawn = false;
     RevertPrompt();  // mechassault-recomp patch: also with the menu closed
