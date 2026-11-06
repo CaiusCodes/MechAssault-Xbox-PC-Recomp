@@ -1,4 +1,4 @@
-MechAssault - native PC version 0.5 (unofficial, work in progress)
+MechAssault - native PC version 0.5.1 (unofficial, work in progress)
 ==================================================================
 
 This is a native Windows version of MechAssault (original Xbox, 2002), made by static recompilation.
@@ -31,7 +31,7 @@ as many pixels as the picture gets on your screen (at most 2x on integrated grap
 larger than it is rendered, FSR 1 upscales it (or plain bilinear, your choice). Anti-aliasing (FXAA or SMAA),
 anisotropic filtering, sharpening, texture sharpness, upscaling and FSR sharpening are in F1 > Rendering; brightness
 in F1 > Display; field of view in F1 > Gameplay. Every setting applies at once, without a restart.
-Widescreen (16:9, 21:9 and wider): the game shows more at the sides, nothing stretched; the radar and weapon gauges
+Widescreen (16:9, 21:9 and wider): the game shows more at the sides, nothing stretched or missing; the radar and weapon gauges
 move out to the screen's edges, menus and movies stay 4:3 in the middle. F1 > Display > Aspect ratio can switch back
 to the Xbox's 4:3 picture.
 
