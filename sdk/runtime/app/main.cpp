@@ -21,6 +21,7 @@
 
 #include "app/app.h"
 #include "app/overlay.h"  // breakdown-recomp patch
+#include "app/update.h"   // mechassault-recomp patch
 #include "core/game_import.h"  // breakdown-recomp patch
 #include "core/input.h"
 #include "core/log.h"
@@ -305,7 +306,20 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     bool relaunched = std::wcsstr(GetCommandLineW(), L"--relaunched") != nullptr;
     std::string log = app::kGame.log;
     if (app::Instance() > 1) log += "-" + std::to_string(app::Instance());
+    // mechassault-recomp patch: --check-updates and --install-update are runs of their own, logged apart (app/update.h)
+    bool check_updates = std::wcsstr(GetCommandLineW(), L"--check-updates") != nullptr;
+    bool install_update = std::wcsstr(GetCommandLineW(), L"--install-update") != nullptr;
+    if (check_updates || install_update) log += "-update";
     logx::Init(app::Paths().logs.string(), log, relaunched);  // breakdown-recomp patch: Paths()
+    // mechassault-recomp patch: the build first
+    LOGR("%s %s", app::kGame.log, *app::kGame.version ? app::kGame.version : "(no version: built outside git)");
+    app::update::Cleanup();  // what an update left behind, at every start
+    if (check_updates || install_update) {
+        app::Load();
+        int code = app::update::CommandLine(install_update);
+        logx::Flush();
+        return code;
+    }
     app::Load();
     if (app::kGame.init) app::kGame.init();
     if (relaunched && !logx::kVerbose) LOGR("Relaunched: %s", IMAGE_XBE);
@@ -321,7 +335,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
             if (!app::FindGame(game)) return 1;
             have_game = true;
         }
-        if (!imported || app::GameCodeStale(game)) {
+        // mechassault-recomp patch: --setup (an update's restart) opens the setup whatever it finds
+        bool asked = std::wcsstr(GetCommandLineW(), L"--setup") != nullptr;
+        if (!imported || asked || app::GameCodeStale(game)) {
             if (!app::RunSetup(*profile, game, have_game)) return 0;
             have_game = true;
         }

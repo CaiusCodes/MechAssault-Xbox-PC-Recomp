@@ -1,5 +1,6 @@
 #include "app/app.h"
 #include "app/overlay.h"
+#include "build_info.h"  // MECHASSAULT_DESCRIBE, written at every build (cmake/build_info.cmake)
 #include "core/game_import.h"
 #include "core/input.h"
 
@@ -101,4 +102,6 @@ const app::GameInfo app::kGame = {
     .controls = L"Mouse aim · WASD move · Left click fire · Right click or Q cycle weapons · "
                 L"1 2 3 energy, ballistic, missile · Space jump jets · Shift defense · Esc pause",
     .platform_line = L"Original Xbox · Title ID 4D530017",
+    .version = MECHASSAULT_DESCRIBE,
+    .update_repo = "CaiusCodes/mechassault-xbox-pc-recomp",  // its releases carry MechAssault.zip (app/update.h)
 };

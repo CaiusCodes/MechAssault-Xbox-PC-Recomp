@@ -43,3 +43,7 @@ out\build\release\MechAssault.exe
 
 `build.bat` does the same with prompts; `release.bat` makes the portable package (no game code: the player's PC
 builds it from their own copy on first start).
+
+**Releases:** the game's updater (F1 > Check for updates) installs the latest GitHub release, so each release must
+attach the package `release.bat` makes as an asset named exactly `MechAssault.zip` (the zip of the `MechAssault`
+folder). Tag releases with their version (`v0.5.1`); the updater compares those numbers. See `docs/testing.md`.

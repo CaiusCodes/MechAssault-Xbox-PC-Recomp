@@ -29,6 +29,7 @@
 #include "core/input.h"
 #include "core/log.h"
 #include "gpu/widescreen.h"
+#include "app/update.h"
 #ifdef MECHASSAULT_BUILD_INFO
 #include "build_info.h"
 #endif
@@ -535,6 +536,72 @@ void NetworkTab(Settings& s) {
     ImGui::PopTextWrapPos();
 }
 
+// mechassault-recomp patch: the menu's foot, second row: checking for updates and installing one (app/update.h)
+void UpdateRow() {
+    using update::State;
+    update::Status st = update::Current();
+    ImGuiStyle& style = ImGui::GetStyle();
+    ImVec4 muted = style.Colors[ImGuiCol_TextDisabled];
+    auto quiet_button = [&](const char* label) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Text, muted);
+        bool pressed = ImGui::Button(label);
+        ImGui::PopStyleColor(2);
+        return pressed;
+    };
+    bool busy = st.state == State::Checking || st.state == State::Installing || st.state == State::Installed;
+    ImGui::BeginDisabled(busy);
+    if (quiet_button("Check for updates")) update::Check();
+    ImGui::EndDisabled();
+    Hint("Looks for a newer version and installs it through the setup. Your saves, settings and game stay as they are.");
+    ImGui::SameLine();
+    char line[160] = "";
+    switch (st.state) {
+        case State::Idle: break;
+        case State::Checking: std::snprintf(line, sizeof(line), "Checking..."); break;
+        case State::UpToDate: std::snprintf(line, sizeof(line), "Up to date"); break;
+        case State::NoReleases: std::snprintf(line, sizeof(line), "No releases yet"); break;
+        case State::Failed: std::snprintf(line, sizeof(line), "Could not check for updates"); break;
+        case State::Available:
+            std::snprintf(line, sizeof(line), "Version %s is available%s", st.latest.c_str(),
+                          st.error.empty() ? "" : " (the last try failed, see the log)");
+            break;
+        case State::Installing:
+            std::snprintf(line, sizeof(line), "Updating to %s...  %.0f%%", st.latest.c_str(), st.progress * 100);
+            break;
+        case State::Installed: std::snprintf(line, sizeof(line), "Restarting..."); break;
+    }
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(muted, "%s", line);
+    if (st.state == State::Available) {
+        ImGui::SameLine();
+        if (update::DevelopmentLayout()) {
+            ImGui::BeginDisabled();
+            ImGui::Button("Updates through git");
+            ImGui::EndDisabled();
+        } else if (ImGui::Button(("Update to " + st.latest).c_str())) {
+            update::Install();
+        }
+    }
+}
+
+// mechassault-recomp patch: the build's version, faint in the menu accent, spaced capitals in the panel's bottom padding
+void VersionTag() {
+    const std::string& v = update::Version();
+    if (v.empty()) return;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 pos = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
+    float h = ImGui::GetFontSize() * 0.78f, gap = h * 0.18f;
+    ImVec4 a = ImGui::GetStyle().Colors[ImGuiCol_SliderGrab];  // the accent
+    ImU32 col = ImGui::GetColorU32(ImVec4(a.x, a.y, a.z, 0.55f));
+    float x = pos.x + ImGui::GetStyle().WindowPadding.x, y = pos.y + size.y - ImGui::GetStyle().WindowPadding.y + 1;
+    for (char ch : v) {
+        char c[2] = {char(std::toupper(static_cast<unsigned char>(ch))), 0};
+        dl->AddText(ImGui::GetFont(), h, ImVec2(x, y), col, c);
+        x += ImGui::GetFont()->CalcTextSizeA(h, FLT_MAX, 0, c).x + gap;
+    }
+}
+
 void Recommended(Settings& s) {
     Settings d;
     s.display_mode = d.display_mode;
@@ -583,7 +650,7 @@ void Menu() {
         ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetFrameHeight());
         if (ImGui::Button("x", ImVec2(ImGui::GetFrameHeight(), 0))) open = false;
         ImGui::Spacing();
-        float footer = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+        float footer = ImGui::GetFrameHeightWithSpacing() * 2 + ImGui::GetStyle().ItemSpacing.y;
         if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_NoTooltip)) {
             auto tab = [&](const char* name, auto draw) {
                 if (!ImGui::BeginTabItem(name, nullptr, TabFlags(name))) return;
@@ -614,6 +681,8 @@ void Menu() {
         float close_w = ImGui::CalcTextSize("Close").x + ImGui::GetStyle().FramePadding.x * 2;
         ImGui::SameLine(ImGui::GetContentRegionMax().x - close_w);
         if (ImGui::Button("Close")) open = false;
+        UpdateRow();
+        VersionTag();
         // B closes the menu once nothing inside it (an open list, an item being edited) takes it
         bool popup = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !popup && !popup_before &&
@@ -654,7 +723,8 @@ void BuildTag() {
 #ifdef MECHASSAULT_BUILD_INFO
     if (gpu::wide::g_hud_learn || g_menu) return;  // in play, or under the settings menu
     ImGuiIO& io = ImGui::GetIO();
-    const char* text = "v" MECHASSAULT_VERSION "  " MECHASSAULT_COMMIT;
+    std::string tag = update::Version().empty() ? "v" MECHASSAULT_VERSION "  " MECHASSAULT_COMMIT : update::Version();
+    const char* text = tag.c_str();
     float size = ImGui::GetFontSize() * 0.9f;
     ImVec2 t = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0, text);
     float pad = size * 0.8f;

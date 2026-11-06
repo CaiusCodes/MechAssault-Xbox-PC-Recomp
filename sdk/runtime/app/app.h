@@ -219,6 +219,11 @@ struct GameInfo {
     std::vector<Language> languages = {};
     const wchar_t* controls = nullptr;
     const wchar_t* platform_line = nullptr;  // under the installer's buttons, e.g. the title ID
+    // mechassault-recomp patch: the build's version ("v0.5.1+3 (abc1234)", git describe; empty outside git), shown in
+    // the F1 menu and first in the log; and the GitHub repository ("owner/name") whose releases update a portable
+    // install (app/update.h), null for none
+    const char* version = "";
+    const char* update_repo = nullptr;
 };
 extern const GameInfo kGame;
 
