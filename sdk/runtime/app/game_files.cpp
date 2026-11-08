@@ -13,6 +13,7 @@
 #include <fstream>
 
 #include "app/app.h"
+#include "core/game_import.h"  // mechassault-recomp patch: XbeCodeSha1
 #include "core/log.h"
 #include "image_symbols.h"
 #include "kernel/crypto.h"
@@ -81,7 +82,12 @@ bool FindGame(GameFiles& game) {
     auto consider = [&](const fs::path& name, std::vector<uint8_t> xbe, std::unique_ptr<kernel::Disc> disc) {
         std::string sha = Sha1(xbe);
         bool match = sha == kImageSha1;
-        LOGR("Game: %s in %s, sha1 %s%s", IMAGE_XBE, name.string().c_str(), sha.c_str(), match ? "" : ", another release");
+        // mechassault-recomp patch: a header patched by a dump or region tool, the code the same (game_import.cpp)
+        std::string code = gameimport::XbeCodeSha1(xbe);
+        bool same_code = !match && kGame.profile && gameimport::ReleaseMatch(xbe, *kGame.profile);
+        LOGR("Game: %s in %s, sha1 %s, code %s%s", IMAGE_XBE, name.string().c_str(), sha.c_str(), code.c_str(),
+             match ? "" : same_code ? " (a known patched copy of this release)" : ", another release");
+        match |= same_code;
         if (match) {
             game = {assets, std::move(xbe)};
             kernel::MountDisc(std::move(disc));

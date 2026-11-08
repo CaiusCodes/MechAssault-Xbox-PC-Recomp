@@ -639,8 +639,8 @@ void OnInspected() {
     Join();
     g->step = Step::Idle;
     const gameimport::Check& c = g->check;
-    LOGR("Setup: %s, %s, title %08X '%s', sha1 %s, %u files, %llu bytes: %s", g->chosen.string().c_str(),
-         gameimport::KindName(c.kind), c.title_id, c.title_name.c_str(), c.xbe_sha1.c_str(), c.files,
+    LOGR("Setup: %s, %s, title %08X '%s', sha1 %s, code %s, %u files, %llu bytes: %s", g->chosen.string().c_str(),
+         gameimport::KindName(c.kind), c.title_id, c.title_name.c_str(), c.xbe_sha1.c_str(), c.xbe_code_sha1.c_str(), c.files,
          (unsigned long long)c.bytes, c.ok ? "ok" : c.problem.c_str());
     g->source = c.ok ? Source::Ok : Source::Bad;
     g->message = Wide(c.problem);

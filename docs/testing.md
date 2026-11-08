@@ -14,6 +14,7 @@ Switches for unattended test runs of the Windows build. None of them changes how
 | `XBE_NO_LAN=1` | System Link broadcasts reach only the join address and games listed online (online tests on one PC) |
 | `XBE_NETLOG=1`, `XBE_IOLOG=1`, `XBE_KEYLOG=1` | Log every datagram, every file transfer, every texture key |
 | `MECHASSAULT_UPDATE_URL=<url>` | The updater asks this address instead of GitHub's `releases/latest` for the newest release |
+| `MECHASSAULT_REPORT_DIR=<folder>` | `MechAssault.exe --save-report` ("Make a problem report.bat") writes its zip there instead of the Desktop; exit 0 when written |
 
 ## Updates
 
@@ -42,3 +43,11 @@ A local test: a release package in a test folder, a fake `releases/latest` JSON 
 ```
 {"tag_name": "v0.6", "assets": [{"name": "MechAssault.zip", "browser_download_url": "http://127.0.0.1:8799/MechAssault.zip"}]}
 ```
+
+## Patched copies
+
+The setup accepts the supported default.xbe (SHA-1 `682ddd1e...`) and any copy with the same code fingerprint
+(`gameimport::XbeCodeSha1`: base, entry and kernel thunk with either key, each section's flags, address, sizes and bytes),
+`919910b4f6fe5ba6b169754088dc61b89e77e2c9`, so region-free, HDD-ready, re-signed or debug-keyed copies import. The setup
+and game logs show both hashes. `docs/release/Check my MechAssault copy.bat` reports a player's copy (region, version,
+build date, libraries, both fingerprints and the 1 KB blocks that differ from the supported release, with their bytes).

@@ -16,6 +16,9 @@ struct Profile {
     std::string name;                       // "Breakdown"
     uint32_t title_id = 0;                  // the xbe certificate's
     std::vector<std::string> xbe_sha1;      // releases this build runs, lower case hex
+    // mechassault-recomp patch: the same releases by their code (XbeCodeSha1), so a copy whose xbe header was patched
+    // by a dump or region tool (region, media flags, signature, keys) is accepted: its code is the one recompiled
+    std::vector<std::string> xbe_code_sha1;
     std::vector<std::string> required;      // files the game needs, '/' separated, from the game's root
     std::vector<std::string> required_dirs; // folders, the same way
     uint32_t min_files = 0;                 // a complete copy has at least this many files
@@ -34,6 +37,7 @@ struct Check {
     std::string problem;              // for the player: what is wrong
     std::string fix;                  // and what to do about it
     std::string xbe_sha1;
+    std::string xbe_code_sha1;        // mechassault-recomp patch: XbeCodeSha1
     uint32_t title_id = 0;
     std::string title_name;           // from the certificate
     uint32_t version = 0;             // the certificate's
@@ -70,6 +74,13 @@ std::vector<std::filesystem::path> Candidates(const std::filesystem::path& dir, 
 bool ReadCertificate(const std::vector<uint8_t>& xbe, uint32_t& title_id, std::string& name, uint32_t& version);
 
 std::string Sha1Hex(const std::vector<uint8_t>& data);
+
+// mechassault-recomp patch: the SHA-1 of what the recompiled code depends on: the base address, the entry point and
+// kernel thunk (decoded with the retail or debug key), and each section's flags, address, sizes and bytes; the rest of
+// the header (certificate, signature, logo) is left out. Empty when data is no xbe.
+std::string XbeCodeSha1(const std::vector<uint8_t>& xbe);
+// the xbe is one of the profile's releases, exactly or by its code
+bool ReleaseMatch(const std::vector<uint8_t>& xbe, const Profile& profile);
 
 // mechassault-recomp patch: rel (a '/' separated path from the game's root) is one of profile.skip or inside one
 bool Skipped(const Profile& profile, const std::string& rel);

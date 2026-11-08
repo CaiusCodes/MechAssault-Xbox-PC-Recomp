@@ -232,6 +232,53 @@ std::string Sha1Hex(const std::vector<uint8_t>& data) {
     return hex;
 }
 
+std::string XbeCodeSha1(const std::vector<uint8_t>& x) {
+    auto r32 = [&](size_t o) {
+        uint32_t v = 0;
+        if (o + 4 <= x.size()) std::memcpy(&v, x.data() + o, 4);
+        return v;
+    };
+    if (x.size() < 0x180 || std::memcmp(x.data(), "XBEH", 4) != 0) return {};
+    uint32_t base = r32(0x104), image = r32(0x10C), count = r32(0x11C), headers = r32(0x120);
+    auto decode = [&](uint32_t v, uint32_t retail, uint32_t debug) {
+        uint32_t r = v ^ retail;
+        return r >= base && r - base < image ? r : v ^ debug;
+    };
+    uint32_t entry = decode(r32(0x128), 0xA8FC57AB, 0x94859D4B), thunk = decode(r32(0x158), 0x5B6D40B6, 0xEFB1F152);
+    if (headers < base || count > 256 || size_t(headers - base) + size_t(count) * 0x38 > x.size()) return {};
+    alignas(8) uint8_t ctx[128];
+    uint8_t digest[20];
+    crypto::ShaInit(ctx);
+    auto add32 = [&](uint32_t v) { crypto::ShaUpdate(ctx, reinterpret_cast<const uint8_t*>(&v), 4); };
+    add32(base);
+    add32(entry);
+    add32(thunk);
+    for (uint32_t i = 0; i < count; i++) {
+        size_t h = size_t(headers - base) + size_t(i) * 0x38;
+        uint32_t flags = r32(h), va = r32(h + 4), vsize = r32(h + 8), raw = r32(h + 0xC), rsize = r32(h + 0x10);
+        if (size_t(raw) + rsize > x.size()) return {};
+        add32(flags);
+        add32(va);
+        add32(vsize);
+        add32(rsize);
+        if (rsize) crypto::ShaUpdate(ctx, x.data() + raw, rsize);
+    }
+    crypto::ShaFinal(ctx, digest);
+    std::string hex;
+    for (uint8_t b : digest) {
+        hex += "0123456789abcdef"[b >> 4];
+        hex += "0123456789abcdef"[b & 15];
+    }
+    return hex;
+}
+
+bool ReleaseMatch(const std::vector<uint8_t>& xbe, const Profile& profile) {
+    auto in = [](const std::vector<std::string>& list, const std::string& v) {
+        return !v.empty() && std::find(list.begin(), list.end(), v) != list.end();
+    };
+    return in(profile.xbe_sha1, Sha1Hex(xbe)) || in(profile.xbe_code_sha1, XbeCodeSha1(xbe));
+}
+
 bool ReadCertificate(const std::vector<uint8_t>& x, uint32_t& title_id, std::string& name, uint32_t& version) {
     auto r32 = [&](size_t o) {
         uint32_t v = 0;
@@ -265,12 +312,13 @@ Check Inspect(const fs::path& source, const Profile& profile) {
         return c;
     }
     c.xbe_sha1 = Sha1Hex(xbe);
+    c.xbe_code_sha1 = XbeCodeSha1(xbe);
     if (!ReadCertificate(xbe, c.title_id, c.title_name, c.version)) {
         c.problem = "default.xbe is not an Xbox executable.";
         c.fix = "The files are damaged; extract or dump the disc again.";
         return c;
     }
-    c.release_match = std::find(profile.xbe_sha1.begin(), profile.xbe_sha1.end(), c.xbe_sha1) != profile.xbe_sha1.end();
+    c.release_match = ReleaseMatch(xbe, profile);  // mechassault-recomp patch: or by its code (a patched header)
     for (const auto& f : profile.required)
         if (!src->Has(f, false)) c.missing.push_back(f);
     for (const auto& d : profile.required_dirs)
@@ -290,7 +338,9 @@ Check Inspect(const fs::path& source, const Profile& profile) {
                     c.xbe_sha1 + ").";
         c.fix = "This build supports the release whose default.xbe has SHA-1 " +
                 (profile.xbe_sha1.empty() ? std::string("(none listed)") : profile.xbe_sha1[0]) +
-                ". Other regions and versions are not supported yet.";
+                ". Other regions and versions are not supported yet. A copy patched by a mod pack (region-free, "
+                "HDD-ready) is fine as long as its game code is unchanged; this one's differs, so dump the disc again "
+                "without patches.";
     } else if (!c.missing.empty()) {
         c.problem = "The game files are incomplete: " + std::to_string(c.missing.size()) + " required item(s) missing, "
                     "first " + c.missing[0] + ".";
@@ -413,8 +463,7 @@ bool Imported(const fs::path& dest, const Profile& profile) {
     std::vector<uint8_t> xbe;
     fs::path x = FindCaseless(dest, kXbe);
     if (x.empty() || !ReadFile(x, xbe)) return false;
-    std::string sha = Sha1Hex(xbe);
-    return std::find(profile.xbe_sha1.begin(), profile.xbe_sha1.end(), sha) != profile.xbe_sha1.end();
+    return ReleaseMatch(xbe, profile);  // mechassault-recomp patch: or by its code
 }
 
 std::vector<fs::path> Candidates(const fs::path& dir, const Profile& profile) {

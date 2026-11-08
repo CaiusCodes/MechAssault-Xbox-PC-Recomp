@@ -12,6 +12,9 @@ const gameimport::Profile& Profile() {
         p.name = "MechAssault";
         p.title_id = 0x4D530017;  // "MS" 023
         p.xbe_sha1 = {"682ddd1ecda1e5110f9339dab0c31d296d51777b"};
+        // the same release with a patched header (region-free or HDD-ready packs, re-signed or debug-keyed copies):
+        // the code fingerprint of the xbe above (gameimport::XbeCodeSha1)
+        p.xbe_code_sha1 = {"919910b4f6fe5ba6b169754088dc61b89e77e2c9"};
         p.required = {"default.xbe", "Common.mgf", "text.mgf", "movies.mgf", "Audio/Music.d1Bank",
                       "Audio/SFX.d1Bank", "Audio/SFX_English.d1Bank", "media/ArialUni.Ttf", "media/dlcustom.xpr",
                       "Movie/NTSC/MAIntro.bik"};

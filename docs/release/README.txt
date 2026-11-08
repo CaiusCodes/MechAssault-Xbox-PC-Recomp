@@ -12,8 +12,9 @@ First start
      - a disc image made from your original disc (.iso: a full disc dump or an xiso), or
      - the folder with the extracted game files (default.xbe with the .mgf files and the Audio, media and Movie
        folders beside it).
-   It is checked on the spot: MechAssault (USA, Europe) is the release this version supports. Your own image or
-   folder is only read, never changed.
+   It is checked on the spot: MechAssault (USA, Europe) is the release this version supports. A copy patched by a mod
+   pack or dump tool (region-free, HDD-ready, re-signed) is fine as long as its game code is unchanged. Your own
+   image or folder is only read, never changed.
 4. Tick the extras you want (fullscreen, a desktop shortcut, mouse aim, unlocking the whole campaign, online games,
    the game's language, deleting the compiler afterwards; most can be changed later in F1) and press Play.
 5. The Prepare tab copies the game into resources\game and builds the game code for your PC from your copy (about a
@@ -67,6 +68,18 @@ resources\saves      saved games and the game's cache (the console hard disk)
 resources\logs       logs and crash dumps: attach mechassault.log to bug reports
 resources\runtime    the compiler and the game code built on your PC
 licenses             licences of the included software
+
+Reporting a problem
+-------------------
+"Make a problem report.bat" in this folder saves a zip on your Desktop (MechAssault-report-<date>-<time>.zip) with
+the logs, the newest crash dumps, settings.toml and a short info.txt. Nothing is sent by itself: attach the zip to
+your report. After a crash a message box says where the log and crash dump were saved. The log
+(resources\logs\mechassault.log) lists Windows, the CPU, the graphics card and its driver, the settings, each
+controller plugged in, and any warnings and errors; a crash adds the crash address and call stack.
+
+If the setup says your copy is a release it does not support, start "Check my MechAssault copy.bat" (put it in the
+folder with default.xbe, or pick that folder when it asks). It writes MechAssault-copy-check.txt on your Desktop with
+the copy's region, version, build date and fingerprints: send that file. It only reads; nothing is changed or sent.
 
 MechAssault is a trademark of Microsoft Corporation. This project is not affiliated with or endorsed by Microsoft,
 Day 1 Studios or WizKids.

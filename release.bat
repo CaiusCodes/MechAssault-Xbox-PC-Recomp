@@ -20,11 +20,13 @@ rd /s /q "%OUT%\package" 2>nul
 mkdir "%PKG%\licenses" "%PKG%\resources\game" "%PKG%\resources\settings" "%PKG%\resources\saves" "%PKG%\resources\logs" "%PKG%\resources\runtime"
 copy /y "%OUT%\%GAME_EXE%.exe" "%PKG%\" >nul || exit /b 1
 copy /y docs\release\README.txt "%PKG%\README.txt" >nul
+copy /y "docs\release\Check my MechAssault copy.bat" "%PKG%\" >nul || exit /b 1
+copy /y "docs\release\Make a problem report.bat" "%PKG%\" >nul || exit /b 1
 copy /y "%SDK%\THIRD_PARTY.txt" "%PKG%\licenses\" >nul
 copy /y "%SDK%\LICENSE" "%PKG%\licenses\XboxXBE-Recomp-LICENSE.txt" >nul
 copy /y "%SDK%\tools\LLVM-LICENSE.txt" "%PKG%\licenses\" >nul
 rem the compiler without its work folder or any built game code: the first start builds the game from the player's copy
-robocopy "%OUT%\compiler" "%PKG%\resources\runtime\compiler" /e /xd work /xf *.dll *.obj *.lib /njh /njs /nfl /ndl >nul
+robocopy "%OUT%\compiler" "%PKG%\resources\runtime\compiler" /e /xd work /xf *.dll *.obj *.lib *.pdb /njh /njs /nfl /ndl >nul
 if errorlevel 8 exit /b 1
 rem the import library of MechAssault.exe, which the game DLL links against on the player's PC (no game code)
 copy /y "%OUT%\compiler\MechAssault.lib" "%PKG%\resources\runtime\compiler\" >nul || (echo MechAssault.lib missing from %OUT%\compiler & exit /b 1)
