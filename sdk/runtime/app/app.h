@@ -89,6 +89,9 @@ void Load();
 void Save();
 void LogSettings();  // every setting, as the settings file has them
 void LogSystem();    // the machine and the settings, at a run's start
+// mechassault-recomp patch: --save-report (report.cpp): logs, crash dumps, settings and info.txt zipped onto the
+// Desktop (MECHASSAULT_REPORT_DIR for tests); 0 when written
+int ReportCommand();
 void ApplyDisplay();  // any thread
 struct Mode {
     uint32_t width, height;

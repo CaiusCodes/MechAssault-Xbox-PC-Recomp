@@ -1,6 +1,7 @@
 #include "core/log.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -56,10 +57,19 @@ void Write(Level lv, const char* fmt, ...) {
     // first unimplemented call without a debug build); the file name and line format stay the release ones
     static const Level min = [] {
         const char* v = std::getenv("XBE_LOG_LEVEL");
-        if (kVerbose || !v) return kVerbose ? Level::Debug : Level::Error;
+        // mechassault-recomp patch (from breakdown-recomp): a release keeps warnings as well (each a real problem)
+        if (kVerbose || !v) return kVerbose ? Level::Debug : Level::Warn;
         return std::string(v) == "info" ? Level::Info : std::string(v) == "warn" ? Level::Warn : Level::Error;
     }();
     if (lv < min) return;
+    // mechassault-recomp patch: at most kWarnings warnings a session in a release, so a loop of one cannot fill the disk
+    if (!kVerbose && lv == Level::Warn) {
+        static std::atomic<int> warnings{0};
+        constexpr int kWarnings = 500;
+        int n = warnings.fetch_add(1, std::memory_order_relaxed);
+        if (n > kWarnings) return;
+        if (n == kWarnings) fmt = "(more warnings are not logged)";
+    }
     char msg[4096];
     va_list ap;
     va_start(ap, fmt);
@@ -67,15 +77,18 @@ void Write(Level lv, const char* fmt, ...) {
     va_end(ap);
     double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - g_start).count();
     static const char* names[] = {"debug", "info", "warn", "error", "info"};
+    static const char* prefixes[] = {"", "", "warning: ", "error: ", ""};
     auto tid = std::hash<std::thread::id>()(std::this_thread::get_id()) & 0xFFFF;
     std::lock_guard<std::mutex> lock(g_mutex);
     char line[4300];
     int n = kVerbose ? std::snprintf(line, sizeof(line), "[%9.3f] [%s] [t%04zx] %s\n", t, names[int(lv)], size_t(tid), msg)
-                     : std::snprintf(line, sizeof(line), "[%9.3f] %s%s\n", t, lv == Level::Error ? "error: " : "", msg);
+                     : std::snprintf(line, sizeof(line), "[%9.3f] %s%s\n", t, prefixes[int(lv)], msg);
     n = std::min(n, int(sizeof(line)) - 1);
     if (g_file) {
         std::fwrite(line, 1, size_t(n), g_file);
-        if (lv >= Level::Warn) std::fflush(g_file);
+        // mechassault-recomp patch: a release writes few lines; each goes to disk at once, so a hard crash, a driver
+        // reset or a killed process still leaves the log complete
+        if (lv >= Level::Warn || !kVerbose) std::fflush(g_file);
     }
     std::fwrite(line, 1, size_t(n), stderr);
 }

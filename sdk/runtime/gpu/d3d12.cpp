@@ -1115,6 +1115,27 @@ bool D3D12Backend::CreateDevice() {
     DXGI_ADAPTER_DESC1 ad{};
     if (adapter) adapter->GetDesc1(&ad);
     LOGR("D3D12 adapter: %ls", adapter ? ad.Description : L"default");
+    // mechassault-recomp patch (from breakdown-recomp): the ids, memory, driver version and feature level, for reports
+    if (adapter) {
+        LARGE_INTEGER umd{};
+        char driver[48] = "unknown";
+        if (SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &umd)))
+            std::snprintf(driver, sizeof(driver), "%u.%u.%u.%u", unsigned(HIWORD(umd.HighPart)),
+                          unsigned(LOWORD(umd.HighPart)), unsigned(HIWORD(umd.LowPart)), unsigned(LOWORD(umd.LowPart)));
+        LOGR("D3D12 adapter: vendor %04X device %04X rev %02X, %.0f MB video memory, %.0f MB shared, driver %s",
+             ad.VendorId, ad.DeviceId, ad.Revision, ad.DedicatedVideoMemory / 1048576.0, ad.SharedSystemMemory / 1048576.0,
+             driver);
+    }
+    {
+        const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_12_0,
+                                            D3D_FEATURE_LEVEL_12_1, D3D_FEATURE_LEVEL_12_2};
+        D3D12_FEATURE_DATA_FEATURE_LEVELS fl{};
+        fl.NumFeatureLevels = UINT(std::size(levels));
+        fl.pFeatureLevelsRequested = levels;
+        if (SUCCEEDED(dev_->CheckFeatureSupport(D3D12_FEATURE_FEATURE_LEVELS, &fl, sizeof(fl))))
+            LOGR("D3D12 feature level %u_%u", unsigned(fl.MaxSupportedFeatureLevel) >> 12,
+                 (unsigned(fl.MaxSupportedFeatureLevel) >> 8) & 0xF);
+    }
     // mechassault-recomp patch: with XBE_D3D12_DEBUG, the debug layer's messages go to the log too (first 200)
     if (GetEnvironmentVariableW(L"XBE_D3D12_DEBUG", nullptr, 0)) {
         ComPtr<ID3D12InfoQueue1> iq;
@@ -4256,7 +4277,23 @@ void D3D12Backend::Present(const Surface& front) {
     DeliverReports();
     bool vsync = app::Get().vsync;
     auto perf_swap = PerfClock::now();
-    swap_->Present(vsync ? 1 : 0, !vsync && tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
+    HRESULT presented = swap_->Present(vsync ? 1 : 0, !vsync && tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
+    // mechassault-recomp patch (from breakdown-recomp): a lost device (a driver reset, a hung GPU) is logged once with
+    // its reason
+    if (FAILED(presented)) {
+        static bool logged = false;
+        if (!logged) {
+            logged = true;
+            HRESULT why = dev_->GetDeviceRemovedReason();
+            LOGE("d3d12: present failed %08X, device removed reason %08X%s", unsigned(presented), unsigned(why),
+                 why == DXGI_ERROR_DEVICE_HUNG    ? " (GPU hung)"
+                 : why == DXGI_ERROR_DEVICE_RESET ? " (device reset)"
+                 : why == DXGI_ERROR_DRIVER_INTERNAL_ERROR ? " (driver internal error)"
+                 : why == DXGI_ERROR_DEVICE_REMOVED ? " (device removed)"
+                                                    : "");
+            logx::Flush();
+        }
+    }
     g_perf.swap += PerfMs(perf_swap);
 
     presents_++;

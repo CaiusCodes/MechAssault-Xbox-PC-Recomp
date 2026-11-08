@@ -28,7 +28,14 @@ void AddPad(SDL_JoystickID id) {
     if (slot == std::end(g_pads)) return;
     *slot = SDL_OpenGamepad(id);
     const char* name = *slot ? SDL_GetGamepadName(*slot) : SDL_GetError();
-    LOGI("input: controller %d %s: %s", int(slot - g_pads) + 1, *slot ? "plugged in" : "failed to open", name ? name : "");
+    // mechassault-recomp patch: at Report level, with the USB ids and SDL's type, so a player's log says which pad it was
+    if (*slot) {
+        const char* type = SDL_GetGamepadStringForType(SDL_GetGamepadType(*slot));
+        LOGR("input: controller %d plugged in: %s (vendor %04X product %04X, %s)", int(slot - g_pads) + 1,
+             name ? name : "", SDL_GetGamepadVendor(*slot), SDL_GetGamepadProduct(*slot), type ? type : "unknown type");
+    } else {
+        LOGR("input: controller %d failed to open: %s", int(slot - g_pads) + 1, name ? name : "");
+    }
 }
 
 void RemovePad(SDL_JoystickID id) {
@@ -36,7 +43,7 @@ void RemovePad(SDL_JoystickID id) {
         if (!g_pads[i] || SDL_GetGamepadID(g_pads[i]) != id) continue;
         SDL_CloseGamepad(g_pads[i]);
         g_pads[i] = nullptr;
-        LOGI("input: controller %d unplugged", i + 1);
+        LOGR("input: controller %d unplugged", i + 1);  // mechassault-recomp patch: Report level
     }
 }
 

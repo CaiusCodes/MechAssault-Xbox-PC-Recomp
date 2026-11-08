@@ -11,9 +11,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <atomic>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <cwchar>
+#include <string>
 #include <thread>
 
 #include <imgui.h>
@@ -51,8 +54,76 @@ bool Background() {
     return on;
 }
 
+// mechassault-recomp patch (from breakdown-recomp): an address as module+offset, which places it in a local copy of the
+// same build
+std::string Where(uint64_t addr) {
+    HMODULE mod = nullptr;
+    wchar_t path[MAX_PATH] = L"?";
+    char out[MAX_PATH + 32];
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(addr), &mod) &&
+        GetModuleFileNameW(mod, path, MAX_PATH)) {
+        const wchar_t* name = std::wcsrchr(path, L'\\');
+        std::snprintf(out, sizeof(out), "%ls+%llX", name ? name + 1 : path,
+                      (unsigned long long)(addr - reinterpret_cast<uintptr_t>(mod)));
+    } else {
+        std::snprintf(out, sizeof(out), "%016llX", (unsigned long long)addr);
+    }
+    return out;
+}
+
+// mechassault-recomp patch (from breakdown-recomp): the crash itself and the host thread's call stack in the log,
+// unwound from the exception's context with the modules' unwind tables (no symbols needed on the player's PC)
+void LogHostCrash(EXCEPTION_POINTERS* e) {
+    if (!e) {
+        LOGE("crash: abort() on thread %lu", GetCurrentThreadId());
+        return;
+    }
+    auto* r = e->ExceptionRecord;
+    LOGE("crash: exception %08lX at %s on thread %lu", r->ExceptionCode, Where(uintptr_t(r->ExceptionAddress)).c_str(),
+         GetCurrentThreadId());
+    if (r->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && r->NumberParameters >= 2)
+        LOGE("crash: %s of %016llX", r->ExceptionInformation[0] == 8 ? "execute" : r->ExceptionInformation[0] ? "write" : "read",
+             (unsigned long long)r->ExceptionInformation[1]);
+    CONTEXT c = *e->ContextRecord;
+    LOGE("crash: rax %016llX rbx %016llX rcx %016llX rdx %016llX rsp %016llX rbp %016llX rsi %016llX rdi %016llX",
+         c.Rax, c.Rbx, c.Rcx, c.Rdx, c.Rsp, c.Rbp, c.Rsi, c.Rdi);
+    for (int i = 0; i < 48 && c.Rip; i++) {
+        LOGE("crash:   #%02d %s", i, Where(c.Rip).c_str());
+        DWORD64 image = 0;
+        PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(c.Rip, &image, nullptr);
+        if (!fn) {
+            // no unwind data: a leaf function or a call through a bad pointer, whose return address is at rsp
+            // (only the first frame may be one; beyond it the walk stops rather than guess)
+            MEMORY_BASIC_INFORMATION mb{};
+            if (i > 0 || !VirtualQuery(reinterpret_cast<void*>(c.Rsp), &mb, sizeof(mb)) || mb.State != MEM_COMMIT ||
+                (mb.Protect & (PAGE_READWRITE | PAGE_READONLY | PAGE_EXECUTE_READWRITE)) == 0 ||
+                (mb.Protect & PAGE_GUARD))
+                break;
+            c.Rip = *reinterpret_cast<DWORD64*>(c.Rsp);
+            c.Rsp += 8;
+            continue;
+        }
+        void* handler = nullptr;
+        DWORD64 frame = 0;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, image, c.Rip, fn, &c, &handler, &frame, nullptr);
+    }
+}
+
+// a test run (background window, scripted input, unattended setup or self test) never waits on a message box
+bool TestRun() {
+    for (const char* v : {"XBE_BACKGROUND", "XBE_PAD_SCRIPT", "XBE_SETUP_TEST", "XBE_SELFTEST"})
+        if (std::getenv(v)) return true;
+    return false;
+}
+
 // crash dump in CrashDumps beside the exe
 LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
+    // mechassault-recomp patch: once, a crash while writing the dump does not start another; the host stack first
+    static std::atomic<bool> once{false};
+    if (once.exchange(true)) return EXCEPTION_CONTINUE_SEARCH;
+    LogHostCrash(e);
+    logx::Flush();
     // the dump holds no guest memory: the guest registers and return addresses go to the log
     if (kernel::Thread* t = kernel::Current(); e && t && t->ctx) {
         auto* r = e->ExceptionRecord;
@@ -81,7 +152,17 @@ LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
                                     MiniDumpWithUnloadedModules | MiniDumpWithIndirectlyReferencedMemory),
                       e ? &info : nullptr, nullptr, nullptr);
     CloseHandle(f);
+    LOGE("crash: dump written to %ls", (dir / name).c_str());
     logx::Flush();
+    // mechassault-recomp patch: tell the player what to send (not in a test run, which must never wait)
+    if (!TestRun()) {
+        wchar_t text[768];
+        swprintf(text, 768,
+                 L"%ls has crashed, sorry.\n\nA log and a crash dump were saved in\n%ls\n\nTo report it, start "
+                 L"\"Make a problem report.bat\" in the %ls folder: it saves a zip on your Desktop to send.",
+                 kGame.title, Paths().logs.c_str(), kGame.title);
+        MessageBoxW(nullptr, text, kGame.short_title, MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+    }
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -309,11 +390,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     // mechassault-recomp patch: --check-updates and --install-update are runs of their own, logged apart (app/update.h)
     bool check_updates = std::wcsstr(GetCommandLineW(), L"--check-updates") != nullptr;
     bool install_update = std::wcsstr(GetCommandLineW(), L"--install-update") != nullptr;
-    if (check_updates || install_update) log += "-update";
+    // mechassault-recomp patch: --save-report too ("Make a problem report.bat"), into the same log as the updater's
+    bool save_report = std::wcsstr(GetCommandLineW(), L"--save-report") != nullptr;
+    if (check_updates || install_update || save_report) log += "-update";
     logx::Init(app::Paths().logs.string(), log, relaunched);  // breakdown-recomp patch: Paths()
     // mechassault-recomp patch: the build first
     LOGR("%s %s", app::kGame.log, *app::kGame.version ? app::kGame.version : "(no version: built outside git)");
     app::update::Cleanup();  // what an update left behind, at every start
+    if (save_report) return app::ReportCommand();
     if (check_updates || install_update) {
         app::Load();
         int code = app::update::CommandLine(install_update);
