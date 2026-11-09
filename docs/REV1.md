@@ -55,3 +55,18 @@ scripts\b.bat cmake --build out/build/rev1 -j 6
 ```
 
 with `out\build\rev1\assets` a junction to the Rev 1 game folder (the runtime looks for `assets` beside the exe).
+
+## Tested (2026-11-09, background runs)
+
+- Boots at 60 fps; the memcpy selftest passes; Mission 1 plays (walk, turn, fire), widescreen camera and HUD.
+- Unlock whole campaign: the hook fires as the campaign menu opens ("2 nodes were played, now 24"); Select Mission
+  lists everything and Continue plays the ending.
+- Local splitscreen (Grinder, Colosseum) with two players.
+- System Link between two Rev 1 copies: hosted, joined, Destruction on Colosseum played in sync.
+- A 2002 copy does not see a Rev 1 host's game (same test, the joiner the 2002 build): the two releases don't play
+  together, so everyone needs Rev 1 for multiplayer.
+- The release package (`release.bat rev1`) installs from the Rev 1 .iso on its own: imports, builds the game code
+  on the player's PC from the shipped Rev 1 configs, plays.
+
+Not yet: the original 2002 release in the same package (its configs and addresses are kept for that), a full
+mission sweep, Xbox Live/DLC (not supported).
