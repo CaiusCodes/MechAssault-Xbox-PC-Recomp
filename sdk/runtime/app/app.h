@@ -127,6 +127,12 @@ struct Folders {
     std::filesystem::path textures;  // replacements and dumps
 };
 const Folders& Paths();
+// mechassault-recomp patch: where the console hard disk (saved games, profiles, the game's cache) is kept: the folder
+// the player chose in the setup (SetSavesDir), else Paths().saves. Read at each call, so a choice made in the setup
+// counts for the game started right after it.
+std::filesystem::path SavesDir();
+// the player's choice; an empty path or the default goes back to Paths().saves
+void SetSavesDir(const std::filesystem::path& dir);
 struct GameFiles;
 // first-run setup (setup.cpp), an installer window: imports the game into Paths().game, finds it (FindGame) into game
 // unless have_game, builds the game code, applies the extras the player ticked; false when the player quit

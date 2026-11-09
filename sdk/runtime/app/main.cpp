@@ -459,7 +459,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     input::Init();
     if (app::kGame.window) app::kGame.window(app::g_hwnd);
     // breakdown-recomp patch: the hard disk in Paths().saves; a second instance's beside it with its number
-    std::filesystem::path hdd = app::Paths().saves;
+    std::filesystem::path hdd = app::SavesDir();  // mechassault-recomp patch: the player's save location
     if (app::Instance() > 1) hdd += std::to_wstring(app::Instance());
     if (app::Instance())
         SetWindowTextW(app::g_hwnd, (std::wstring(app::kGame.title) + L" [" + std::to_wstring(app::Instance()) + L"]").c_str());

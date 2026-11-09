@@ -90,6 +90,8 @@ enum Hit {
     kExtraShortcut,
     kExtraDelete,
     kLanguage,   // mechassault-recomp patch: GameInfo::languages, a click steps to the next
+    kBrowseSaves,  // mechassault-recomp patch: the save location's Browse and Default
+    kDefaultSaves,
     kExtraGame,  // GameInfo::extras from here
 };
 
@@ -129,6 +131,7 @@ struct State {
     bool fullscreen = true, shortcut = true, delete_compiler = false;
     std::vector<bool> game_extras;
     size_t language = 0;  // mechassault-recomp patch: index in GameInfo::languages
+    fs::path saves;       // mechassault-recomp patch: the save location (SavesDir), written when Play is pressed
     uint64_t compiler_bytes = 0;
     bool shortcut_made = false;
 
@@ -418,10 +421,19 @@ void PaintGame(HDC dc, int x, int y, int right) {
                L"The game's text and speech. Change it any time in the settings (F1).", can);
         cy += S(46);
     }
-    std::wstring freed =
-        g->compiler_bytes ? L"Frees about " + Megabytes(g->compiler_bytes) + L" once the game is built. " : L"";
-    Check(dc, kExtraDelete, in, cy, inr, g->delete_compiler, L"Delete the compiler afterwards",
-          freed + L"An update brings it back.", (can || g->step == Step::Ready) && g->compiler_bytes);
+    // mechassault-recomp patch: the save location in place of deleting the compiler (j, 2026-11-09): the default
+    // unless the player browses for another folder
+    {
+        int tx = in + S(18) + S(12), bw = S(96), gap = S(8);
+        bool custom = g->saves != Paths().saves;
+        int buttons = custom ? 2 * bw + gap : bw;
+        Text(dc, {tx, cy, inr - buttons - S(12), cy + S(22)}, L"Game save location", g->fonts.body, can ? kBone : kAsh);
+        std::wstring where = custom ? g->saves.wstring() : L"Default: resources\\saves beside " + name + L".exe";
+        Text(dc, {tx, cy + S(21), inr - buttons - S(12), cy + S(40)}, where, g->fonts.caption, kAsh,
+             DT_LEFT | DT_PATH_ELLIPSIS);
+        Button(dc, kBrowseSaves, {inr - bw, cy - S(2), inr, cy + S(30)}, L"Browse…", can);
+        if (custom) Button(dc, kDefaultSaves, {inr - 2 * bw - gap, cy - S(2), inr - bw - gap, cy + S(30)}, L"Default", can);
+    }
 }
 
 void PaintPrepare(HDC dc, int x, int y, int right) {
@@ -580,7 +592,7 @@ void Redraw() { InvalidateRect(g->hwnd, nullptr, FALSE); }
 
 // ---- what the buttons do ----
 
-fs::path Pick(HWND hwnd, bool folder) {
+fs::path Pick(HWND hwnd, bool folder, const wchar_t* title = nullptr) {
     fs::path out;
     IFileOpenDialog* d = nullptr;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&d)))) return out;
@@ -591,7 +603,7 @@ fs::path Pick(HWND hwnd, bool folder) {
         COMDLG_FILTERSPEC types[] = {{L"Xbox disc images (*.iso, *.xiso)", L"*.iso;*.xiso"}, {L"All files", L"*.*"}};
         d->SetFileTypes(2, types);
     }
-    d->SetTitle(folder ? L"Choose the folder with default.xbe" : L"Choose the disc image");
+    d->SetTitle(title ? title : folder ? L"Choose the folder with default.xbe" : L"Choose the disc image");
     if (SUCCEEDED(d->Show(hwnd))) {
         IShellItem* item = nullptr;
         if (SUCCEEDED(d->GetResult(&item))) {
@@ -678,6 +690,8 @@ void ApplyExtras() {
     for (size_t i = 0; i < kGame.extras.size(); i++) *kGame.extras[i].flag = g->game_extras[i];
     if (!kGame.languages.empty()) s.language = kGame.languages[g->language].xc;
     Save();
+    SetSavesDir(g->saves);  // mechassault-recomp patch
+    LOGR("Setup: saves in %s", SavesDir().string().c_str());
     if (g->shortcut && !g->shortcut_made) g->shortcut_made = MakeShortcut();
     LOGR("Setup: extras: %s, shortcut %d, delete compiler %d", g->fullscreen ? "fullscreen" : "windowed",
          int(g->shortcut_made), int(g->delete_compiler));
@@ -781,6 +795,14 @@ void OnClick(int h) {
             break;
         case kBrowseFolder:
             Choose(Pick(g->hwnd, true));
+            break;
+        case kBrowseSaves:  // mechassault-recomp patch
+            if (!Busy() && g->step != Step::Ready)
+                if (fs::path p = Pick(g->hwnd, true, L"Choose where to keep saved games and profiles"); !p.empty())
+                    g->saves = p;
+            break;
+        case kDefaultSaves:
+            if (!Busy() && g->step != Step::Ready) g->saves = Paths().saves;
             break;
         case kClose:
             Close();
@@ -928,6 +950,7 @@ bool RunSetup(const gameimport::Profile& profile, GameFiles& game, bool have_gam
     for (size_t i = 0; i < kGame.languages.size(); i++)
         if (kGame.languages[i].xc == Get().language) state.language = i;
     state.compiler_bytes = CompilerFolderBytes();
+    state.saves = SavesDir();  // mechassault-recomp patch
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     input::Init();
 

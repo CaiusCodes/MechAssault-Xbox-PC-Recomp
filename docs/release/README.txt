@@ -16,8 +16,9 @@ First start
    supports (the original 2002 disc, MechAssault (USA, Europe), is not yet). A copy patched by a mod
    pack or dump tool (region-free, HDD-ready, re-signed) is fine as long as its game code is unchanged. Your own
    image or folder is only read, never changed.
-4. Tick the extras you want (fullscreen, a desktop shortcut, mouse aim, unlocking the whole campaign, online games,
-   the game's language, deleting the compiler afterwards; most can be changed later in F1) and press Play.
+4. Tick the extras you want (fullscreen, a desktop shortcut, unlocking the whole campaign, online games, the game's
+   language; most can be changed later in F1). Saved games and profiles go in resources\saves unless you browse for
+   another folder under Game save location. Mouse aim is on; F1 > Controls turns it off. Then press Play.
 5. The Prepare tab copies the game into resources\game and builds the game code for your PC from your copy (about a
    minute; this happens once). Then the Play tab shows your setup and the controls: press Play.
 
