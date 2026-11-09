@@ -34,3 +34,7 @@ settings.toml
 /tools-build/
 /captures/
 /scratch/
+
+# Rev 1 build (out/build/rev1, XBE_GENERATED_DIR)
+/generated-rev1/
+__pycache__/

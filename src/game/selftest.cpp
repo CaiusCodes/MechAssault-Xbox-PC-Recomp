@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "common/release.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "cpu/x86_ops.h"
@@ -16,7 +17,7 @@
 
 namespace {
 
-constexpr uint32_t kMemcpy = 0x1D0580;
+#define kMemcpy (mechassault::Current().memcpy)  // 2002: 0x1D0580
 
 int TestMemcpy(X86Context& ctx, uint8_t* base) {
     // buffers in the free stack below the hook's own frame

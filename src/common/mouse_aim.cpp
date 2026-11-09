@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "common/release.h"
 #include "core/input.h"
 #include "core/log.h"
 #include "kernel/kernel.h"
@@ -51,7 +52,10 @@ namespace {
 
 std::atomic<int32_t> g_dx{0}, g_dy{0};  // raw counts the game has not taken yet
 
-constexpr uint32_t kPilot = 0x387C8C, kPilotVtable = 0x2FA4C0, kMechVtable = 0x2FDA50;
+// 2002: 0x387C8C, 0x2FA4C0, 0x2FDA50 (the release in memory: common/release.h)
+#define kPilot (mechassault::Current().pilot)
+#define kPilotVtable (mechassault::Current().pilot_vtable)
+#define kMechVtable (mechassault::Current().mech_vtable)
 constexpr uint32_t kMechOfPilot = 0x10, kHeadingAt = 0x2B0, kPitchAt = 0x478;
 constexpr float kPitchUp = -35.0f, kPitchDown = 50.0f;  // the stick's limits
 

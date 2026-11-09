@@ -172,7 +172,8 @@ void ScriptPad(int port, input::Pad& pad) {
                 // "memdump <tag> 1": every committed page of the 64 MB instead, the heap's objects too
                 // "memdump <tag> 2": the contiguous memory window (0x80000000 up), where textures and targets live
                 const uint32_t lo = st.value == 2 ? 0x80000000u : st.value == 1 ? 0x10000 : 0x2E0000,
-                               hi = st.value == 2 ? 0x84000000u : st.value == 1 ? 0x4000000 : 0x53A8A0;
+                               hi = st.value == 2 ? 0x84000000u : st.value == 1 ? 0x4000000
+                                                     : 0x10000 + kernel::R32(0x1010C);  // the image's end (header)
                 for (uint32_t va = lo; va < hi;) {
                     if (st.value && !mem::IsCommitted(va)) {
                         va += 0x1000;

@@ -13,6 +13,7 @@
 #include <cstring>
 #include <iterator>
 
+#include "common/release.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
 #include "kernel/kernel.h"
@@ -22,10 +23,11 @@ bool g_unlock_campaign = false;  // settings.toml unlock_campaign
 bool InPlay();
 }
 
-// whether a mission is being played: a word at 0x3570C0 is 0 on every front-end screen and while the pause menu is
+// whether a mission is being played: a word (0x3570C0; Rev 1 0x380100, checked the same way) is 0 on every front-end screen and while the pause menu is
 // up, and 0x10 or more in a mission (sampled twice a second through the menus, play and the pause menu; 0x3570B8 and
 // 0x35A6E8..F0 beside it move with it: HUD drawing counts). A mission's popups (Basic Controls) count as play.
-bool mechassault::InPlay() { return kernel::R32(0x3570C0) != 0; }
+// (2002 addresses; Current() has each release's)
+bool mechassault::InPlay() { return kernel::R32(mechassault::Current().in_play) != 0; }
 
 namespace {
 
@@ -49,9 +51,14 @@ constexpr Node kNodes[] = {
     {"LEVEL20A", "Mission20a.wdf"},       {"LEVEL20B", "Mission20b.wdf"},
 };
 constexpr Node kEnd{"ENDMOVIE", "ClosingCinema.mgv"};
-constexpr uint32_t kProgress = 0x386260;
-constexpr uint32_t kCurName = kProgress + 0x14, kCurFile = kProgress + 0x54, kCurDone = kProgress + 0x94,
-                   kCurCount = kProgress + 0x98, kPlayedCount = kProgress + 0x170, kPlayed = kProgress + 0x178;
+// the progress block's fields (0x386260 in 2002, 0x3B1FF8 in Rev 1; mechassault::Current().progress for the release in memory)
+#define kProgress (mechassault::Current().progress)
+#define kCurName (kProgress + 0x14)
+#define kCurFile (kProgress + 0x54)
+#define kCurDone (kProgress + 0x94)
+#define kCurCount (kProgress + 0x98)
+#define kPlayedCount (kProgress + 0x170)
+#define kPlayed (kProgress + 0x178)
 constexpr uint32_t kStride = 0xC4, kMaxPlayed = (0x186C - 0x178) / kStride;
 static_assert(std::size(kNodes) <= kMaxPlayed);
 

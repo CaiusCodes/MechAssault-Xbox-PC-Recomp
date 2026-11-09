@@ -1,0 +1,7 @@
+# mechassault-recomp: the original 2002 release (MechAssault (USA, Europe)); not built by default (Rev 1 is, from config/)
+# Recompiler entry config: xbe_symbols output plus MechAssault's maintained additions
+includes = ["game.toml", "mechassault.toml"]
+
+# development: functions logged on each call and return (x86_trace, Info level: XBE_LOG_LEVEL=info), e.g.
+# [xbe]
+# trace = [0x685E0, 0x68530]   # the menu state machine: switch to a state by hash, look one up

@@ -1,4 +1,7 @@
 # MechAssault additions to the xbe_symbols output (config/game.toml). Each address needs its evidence.
+# mechassault-recomp: Rev 1 (2003). Moved from the 2002 release's (config/2002/mechassault.toml) by code matching
+# (scripts/rev1/translate_config.py): each line keeps its 2002 address; the evidence in the comments was gathered on
+# the 2002 build and holds for the same code here. docs/REV1.md has how.
 [symbols]
 # xbe_symbols matched it by constants (0.60) at 0x2E443F, which pops 4 instead of 8 and walks a USB descriptor table
 # (0x355760..0x355764), so it is not XInputGetCapabilities
@@ -6,98 +9,98 @@ XInputGetCapabilities = 0
 
 # From scripts/oovpa_scan.py (XbSymbolDatabase 20eced5 patterns, 0 disagreements with the 78 xbe_symbols also found);
 # each checked by its stack pop (ret n) against the API's argument count, and the first by its body
-IDirectSound_SetMixBinHeadroom     = 0x29313F  # (this-8, bin, headroom) -> 0x29241E stores the byte at [obj+8]+bin+0x14
-IDirectSound_SetDopplerFactor      = 0x294316  # ret 0xC
-IDirectSoundBuffer_Lock            = 0x2932A3  # XbSDB 4831
-IDirectSoundBuffer_Unlock          = 0x2922A9  # ret 0x14, does nothing (as in the XDK)
-IDirectSoundBuffer_Pause           = 0x29322F  # ret 8
-IDirectSoundBuffer_StopEx          = 0x29320B  # ret 0x10 (this, REFERENCE_TIME, flags)
-IDirectSoundBuffer_SetFormat       = 0x293B8A  # ret 8
-IDirectSoundBuffer_SetOutputBuffer = 0x293BC2  # ret 8
-CDirectSoundStream_FlushEx         = 0x292E40  # XbSDB 4831
-CDirectSoundStream_SetFormat       = 0x293B20  # XbSDB 4831
-D3DDevice_SetLight                 = 0x264C30  # XbSDB 4831
-D3DDevice_SetMaterial              = 0x2642E0  # XbSDB 4831
-D3DDevice_LightEnable              = 0x264E10  # ret 8; calls SetLight 0x264C30 with a default white light when unset
+IDirectSound_SetMixBinHeadroom     = 0x2B31FF  # 2002: 0x29313F; (this-8, bin, headroom) -> 0x29241E stores the byte at [obj+8]+bin+0x14
+IDirectSound_SetDopplerFactor      = 0x2B43D6  # 2002: 0x294316; ret 0xC
+IDirectSoundBuffer_Lock            = 0x2B3363  # 2002: 0x2932A3; XbSDB 4831
+IDirectSoundBuffer_Unlock          = 0x2B2369  # 2002: 0x2922A9; ret 0x14, does nothing (as in the XDK)
+IDirectSoundBuffer_Pause           = 0x2B32EF  # 2002: 0x29322F; ret 8
+IDirectSoundBuffer_StopEx          = 0x2B32CB  # 2002: 0x29320B; ret 0x10 (this, REFERENCE_TIME, flags)
+IDirectSoundBuffer_SetFormat       = 0x2B3C4A  # 2002: 0x293B8A; ret 8
+IDirectSoundBuffer_SetOutputBuffer = 0x2B3C82  # 2002: 0x293BC2; ret 8
+CDirectSoundStream_FlushEx         = 0x2B2F00  # 2002: 0x292E40; XbSDB 4831
+CDirectSoundStream_SetFormat       = 0x2B3BE0  # 2002: 0x293B20; XbSDB 4831
+D3DDevice_SetLight                 = 0x284CF0  # 2002: 0x264C30; XbSDB 4831
+D3DDevice_SetMaterial              = 0x2843A0  # 2002: 0x2642E0; XbSDB 4831
+D3DDevice_LightEnable              = 0x284ED0  # 2002: 0x264E10; ret 8; calls SetLight 0x264C30 with a default white light when unset
 
 # By hand. 4831's IDirectSoundStream_* are jmp thunks (0x2932D3..0x2932E7) into the CDirectSoundStream_* bodies;
 # 0x2932DD jumps here, whose body passes this+4 and the mix bins to CDirectSoundVoice_SetMixBinVolumes 0x29264A
 # (the same shape as CDirectSoundStream_SetMixBins 0x293074 -> CDirectSoundVoice_SetMixBins). Running the original
 # against the host's stream wrote through a null voice (guest 0x30) right after the audio banks load.
-CDirectSoundStream_SetMixBinVolumes = 0x2930C6  # ret 8
+CDirectSoundStream_SetMixBinVolumes = 0x2B3186  # 2002: 0x2930C6; ret 8
 
 # System Link (sdk/runtime/xdk/xnet.cpp runs it on host Winsock). XNet 4831 exports every call as an 11-byte thunk,
 # "mov ecx, [0x35250C] (the XNet object); jmp member", in ordinal order at 0x251217..0x251401; each named here is
 # that thunk, checked by its member's stack pop against the API's argument count and by the member's body (error
 # codes, what it writes). The QoS calls (0x251287 listen, 0x251296 lookup, 0x2512B2 release) stay original: with no
 # XNet object they fail with WSANOTINITIALISED, as Live QoS does with no network.
-XNetStartup               = 0x25160C  # XbSDB pattern; creates the XNet object (0x251406)
-WSAStartup                = 0x251623  # push 1, push 0, then 0x251406 as XNetStartup does
-XNetGetEthernetLinkStatus = 0x016000  # in XAPI: PhyGetLinkState(0) (kernel 252), the link bits when bit 0 is set
-XNetRandom                = 0x251222  # (buf, len) ret 8, always 0
-XNetCreateKey             = 0x25122D  # (xnkid, xnkey) ret 8
-XNetRegisterKey           = 0x251238  # (xnkid, xnkey) ret 8
-XNetUnregisterKey         = 0x251243  # (xnkid) ret 4
-XNetXnAddrToInAddr        = 0x25124E  # (xnaddr, xnkid, ina*) ret 0xC
-XNetGetTitleXnAddr        = 0x2512BD  # (xnaddr) ret 4: 0x255236 fills ina, the MAC at +0xA; 1 (PENDING) with no XNet
-XNetInAddrToXnAddr        = 0x2513E4  # (ina, xnaddr, xnkid) ret 0xC: 0x25598D zeroes 0x24 and 8 bytes
-XNetGetConnectStatus      = 0x2513FB  # (ina) ret 4: 0x256DCA looks the peer up by its address
-socket                    = 0x2512C8  # member 0x253832 (XbSDB pattern), ret 0xC
-closesocket               = 0x2512D3  # ret 4
-shutdown                  = 0x2512DE  # ret 8, WSAENOTCONN
-ioctlsocket               = 0x2512E9  # member 0x2519CA (XbSDB), FIONBIO / FIONREAD
-setsockopt                = 0x2512F4  # ret 0x14, WSAENOPROTOOPT
-bind                      = 0x251303  # member 0x252543 (XbSDB)
-connect                   = 0x25130E  # member 0x2525C7 (XbSDB)
-listen                    = 0x251319  # member 0x251C04 (XbSDB)
-accept                    = 0x251324  # ret 0xC, WSAEWOULDBLOCK
-select                    = 0x25132F  # ret 0x14, WSAEFAULT for an fd_set
-WSAGetOverlappedResult    = 0x25133E  # ret 0x14
-WSACancelOverlappedIO     = 0x25134D  # ret 4
-recv                      = 0x251358  # member 0x25308C (XbSDB)
-WSARecv                   = 0x251363  # ret 0x1C
-recvfrom                  = 0x251372  # ret 0x18
-send                      = 0x251381  # member 0x253278 (XbSDB)
-WSASend                   = 0x25138C  # ret 0x1C
-sendto                    = 0x25139B  # ret 0x18
-WSASendTo                 = 0x2513AA  # ret 0x24, WSAEACCES (broadcast without SO_BROADCAST)
-WSAGetLastError           = 0x2517AE  # jmp 0x16EEE (the thread's last error), 37 calls from the game
+XNetStartup               = 0x2716CC  # 2002: 0x25160C; XbSDB pattern; creates the XNet object (0x251406)
+WSAStartup                = 0x2716E3  # 2002: 0x251623; push 1, push 0, then 0x251406 as XNetStartup does
+XNetGetEthernetLinkStatus = 0x16BE0  # 2002: 0x16000; in XAPI: PhyGetLinkState(0) (kernel 252), the link bits when bit 0 is set
+XNetRandom                = 0x2712E2  # 2002: 0x251222; (buf, len) ret 8, always 0
+XNetCreateKey             = 0x2712ED  # 2002: 0x25122D; (xnkid, xnkey) ret 8
+XNetRegisterKey           = 0x2712F8  # 2002: 0x251238; (xnkid, xnkey) ret 8
+XNetUnregisterKey         = 0x271303  # 2002: 0x251243; (xnkid) ret 4
+XNetXnAddrToInAddr        = 0x27130E  # 2002: 0x25124E; (xnaddr, xnkid, ina*) ret 0xC
+XNetGetTitleXnAddr        = 0x27137D  # 2002: 0x2512BD; (xnaddr) ret 4: 0x255236 fills ina, the MAC at +0xA; 1 (PENDING) with no XNet
+XNetInAddrToXnAddr        = 0x2714A4  # 2002: 0x2513E4; (ina, xnaddr, xnkid) ret 0xC: 0x25598D zeroes 0x24 and 8 bytes
+XNetGetConnectStatus      = 0x2714BB  # 2002: 0x2513FB; (ina) ret 4: 0x256DCA looks the peer up by its address
+socket                    = 0x271388  # 2002: 0x2512C8; member 0x253832 (XbSDB pattern), ret 0xC
+closesocket               = 0x271393  # 2002: 0x2512D3; ret 4
+shutdown                  = 0x27139E  # 2002: 0x2512DE; ret 8, WSAENOTCONN
+ioctlsocket               = 0x2713A9  # 2002: 0x2512E9; member 0x2519CA (XbSDB), FIONBIO / FIONREAD
+setsockopt                = 0x2713B4  # 2002: 0x2512F4; ret 0x14, WSAENOPROTOOPT
+bind                      = 0x2713C3  # 2002: 0x251303; member 0x252543 (XbSDB)
+connect                   = 0x2713CE  # 2002: 0x25130E; member 0x2525C7 (XbSDB)
+listen                    = 0x2713D9  # 2002: 0x251319; member 0x251C04 (XbSDB)
+accept                    = 0x2713E4  # 2002: 0x251324; ret 0xC, WSAEWOULDBLOCK
+select                    = 0x2713EF  # 2002: 0x25132F; ret 0x14, WSAEFAULT for an fd_set
+WSAGetOverlappedResult    = 0x2713FE  # 2002: 0x25133E; ret 0x14
+WSACancelOverlappedIO     = 0x27140D  # 2002: 0x25134D; ret 4
+recv                      = 0x271418  # 2002: 0x251358; member 0x25308C (XbSDB)
+WSARecv                   = 0x271423  # 2002: 0x251363; ret 0x1C
+recvfrom                  = 0x271432  # 2002: 0x251372; ret 0x18
+send                      = 0x271441  # 2002: 0x251381; member 0x253278 (XbSDB)
+WSASend                   = 0x27144C  # 2002: 0x25138C; ret 0x1C
+sendto                    = 0x27145B  # 2002: 0x25139B; ret 0x18
+WSASendTo                 = 0x27146A  # 2002: 0x2513AA; ret 0x24, WSAEACCES (broadcast without SO_BROADCAST)
+WSAGetLastError           = 0x27186E  # 2002: 0x2517AE; jmp 0x16EEE (the thread's last error), 37 calls from the game
 # Xbox Live stays off: XOnlineStartup builds the Live object (0x3524F0) over the XNet one, and with that null its
 # cleanup crashed in XNet (0x25682D, guest 0xAE4) as System Link opened. Replaced, Live calls find no object and fail
 # with XONLINE_E_NOT_INITIALIZED (0x80150005), as the original does before startup.
-XOnlineStartup            = 0x238884  # ret 4, WSAStartup(0x200) then the Live object; lock 0x3524F4
-XOnlineCleanup            = 0x238965  # ret 0, 0x80150005 with no Live object, then WSACleanup (0x25171E)
+XOnlineStartup            = 0x2585C2  # 2002: 0x238884; ret 4, WSAStartup(0x200) then the Live object; lock 0x3524F4
+XOnlineCleanup            = 0x2586A3  # 2002: 0x238965; ret 0, 0x80150005 with no Live object, then WSACleanup (0x25171E)
 
 # Bink: the movie step (0x206D90) calls BinkWait 0x2CB180 (ret 4, nonzero: not due yet) unless the movie's flag at
 # +0x23 is set, then BinkDoFrame 0x2CAA40 (ret 4), BinkCopyToBuffer 0x2CA390 (7 arguments), and at the end
 # BinkNextFrame 0x2CC660 (ret 4). Movies with the flag (the logos) stepped once per game frame: at 60 fps twice their
 # speed. Named, the runtime's BinkDoFrame (xdk/bink.cpp) holds every movie's frame until BinkWait says it is due.
-BinkWait                  = 0x2CB180
-BinkDoFrame               = 0x2CAA40
-BinkNextFrame             = 0x2CC660
+BinkWait                  = 0x2EB240  # 2002: 0x2CB180
+BinkDoFrame               = 0x2EAB00  # 2002: 0x2CAA40
+BinkNextFrame             = 0x2EC720  # 2002: 0x2CC660
 
 [data]
 
 # True widescreen: widen the camera between D3DXMatrixPerspectiveFovLH and SetTransform (src/game/widescreen.cpp)
 [[hook]]
-at = 0x39209
+at = 0x3A519  # 2002: 0x39209
 call = "MechAssaultWidenProjection"
 
 # the culling frustum's planes, widened as the projection was (src/game/widescreen.cpp)
 [[hook]]
-at = 0x3829F
+at = 0x395AF  # 2002: 0x3829F
 call = "MechAssaultWidenCullSides"
 
 [[hook]]
-at = 0x383D6
+at = 0x396E6  # 2002: 0x383D6
 call = "MechAssaultWidenCullTops"
 
 [[hook]]
-at = 0x392B0
+at = 0x3A5C0  # 2002: 0x392B0
 call = "MechAssaultWidenCullDone"
 
 # Unlock the whole campaign (setup extra, F1 > Gameplay): fill in the profile's campaign progress as the campaign menu
 # opens, right after it loads the profile (0x895B0) (src/game/campaign.cpp)
 [[hook]]
-at = 0x8B0A3
+at = 0x8D6D3  # 2002: 0x8B0A3
 call = "MechAssaultUnlockCampaign"

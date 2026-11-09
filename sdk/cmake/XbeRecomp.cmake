@@ -86,8 +86,13 @@ set_source_files_properties(${XBE_SDK_DIR}/runtime/core/input.cpp PROPERTIES INC
 # release leaves it out and the executable builds it from the player's xbe (runtime/app/game_code.cpp, which compiles
 # with the same flags). Expects assets/<xbe> and the config's out = "generated/<game_dir>". At run time the game may be
 # a disc image instead.
+# mechassault-recomp patch: XBE_ASSETS_DIR and XBE_GENERATED_DIR (cache) let one checkout build a second release
+# into its own build folder (cmake -B out/build/rev1 -DXBE_ASSETS_DIR=... -DXBE_GENERATED_DIR=...) without touching
+# the default build's assets\ and generated\; the recompiler gets them as its xbe and out overrides
+set(XBE_ASSETS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets" CACHE PATH "the folder with the xbe this build recompiles")
+set(XBE_GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated" CACHE PATH "where the recompiled code is written")
 function(add_xbe_image target xbe config partitions game_dir)
-    set(GEN ${CMAKE_CURRENT_SOURCE_DIR}/generated/${game_dir})
+    set(GEN ${XBE_GENERATED_DIR}/${game_dir})
     set(GEN_SOURCES ${GEN}/x86_func_mapping.cpp)
     math(EXPR last "${partitions} - 1")
     foreach(i RANGE ${last})
@@ -98,17 +103,17 @@ function(add_xbe_image target xbe config partitions game_dir)
         OUTPUT ${GEN}/codegen.stamp
         BYPRODUCTS ${GEN_SOURCES} ${GEN}/x86_recomp_shared.h ${GEN}/image_symbols.h ${GEN}/hook_exports.h
                    ${GEN}/exports.def ${GEN}/imports.def ${GEN}/code.lib
-        COMMAND xbe_recomp config/${config} --xdk ${XBE_SDK_DIR}/xdk
+        COMMAND xbe_recomp config/${config} ${XBE_ASSETS_DIR}/${xbe} ${GEN} --xdk ${XBE_SDK_DIR}/xdk
         COMMAND ${XBE_LLVM_BIN}/lld-link.exe /lib /machine:x64 /def:${GEN}/imports.def /out:${GEN}/code.lib
         COMMAND ${CMAKE_COMMAND} -E touch ${GEN}/codegen.stamp
-        DEPENDS xbe_recomp ${configs} ${CMAKE_CURRENT_SOURCE_DIR}/assets/${xbe}
+        DEPENDS xbe_recomp ${configs} ${XBE_ASSETS_DIR}/${xbe}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Recompiling ${xbe}"
         VERBATIM)
     add_custom_target(recompile_${target} DEPENDS ${GEN}/codegen.stamp)
     file(GLOB GAME_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/${game_dir}/*.cpp)
     # the xbe's SHA-1: the executable checks the game it finds is the release it was made from
-    set(xbe_file ${CMAKE_CURRENT_SOURCE_DIR}/assets/${xbe})
+    set(xbe_file ${XBE_ASSETS_DIR}/${xbe})
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${xbe_file})
     file(SHA1 ${xbe_file} xbe_sha1)
     set(XBE_HASH ${CMAKE_CURRENT_BINARY_DIR}/${target}_xbe.cpp)
