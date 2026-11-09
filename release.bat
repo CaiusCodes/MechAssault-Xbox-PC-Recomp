@@ -1,7 +1,9 @@
 @echo off
 set "GAME_EXE=MechAssault"
 cd /d "%~dp0"
+rem mechassault-recomp: release.bat [build folder name]: out\build\release unless named (rev1: out\build\rev1)
 set "OUT=out\build\release"
+if not "%~1"=="" set "OUT=out\build\%~1"
 rem the Visual C++ runtime beside the executable, so a fresh Windows install needs nothing more
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -products * -property installationPath`) do set "VSDIR=%%i"
@@ -10,7 +12,7 @@ if not exist "%OUT%\%GAME_EXE%.exe" call build.bat || exit /b 1
 rem the configure step writes where the SDK is
 if not exist "%OUT%\sdk_dir.txt" cmake --preset release >nul || exit /b 1
 if not exist "%OUT%\sdk_dir.txt" echo %OUT%\sdk_dir.txt was not written, update the SDK. && exit /b 1
-set /p SDK=<out\build\release\sdk_dir.txt
+set /p SDK=<"%OUT%\sdk_dir.txt"
 del /q "%GAME_EXE%.zip" 2>nul
 rem mechassault-recomp: the portable layout
 rem   MechAssault\MechAssault.exe, README.txt, licenses\, resources\{game,settings,saves,logs,runtime\compiler}

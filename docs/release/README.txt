@@ -12,7 +12,8 @@ First start
      - a disc image made from your original disc (.iso: a full disc dump or an xiso), or
      - the folder with the extracted game files (default.xbe with the .mgf files and the Audio, media and Movie
        folders beside it).
-   It is checked on the spot: MechAssault (USA, Europe) is the release this version supports. A copy patched by a mod
+   It is checked on the spot: MechAssault (USA) Rev 1, the 2003 reissue most copies are, is the release this version
+   supports (the original 2002 disc, MechAssault (USA, Europe), is not yet). A copy patched by a mod
    pack or dump tool (region-free, HDD-ready, re-signed) is fine as long as its game code is unchanged. Your own
    image or folder is only read, never changed.
 4. Tick the extras you want (fullscreen, a desktop shortcut, mouse aim, unlocking the whole campaign, online games,
