@@ -1,4 +1,4 @@
-MechAssault - native PC version 0.5.1 (unofficial, work in progress)
+MechAssault - native PC version 0.6 (unofficial, work in progress)
 ==================================================================
 
 This is a native Windows version of MechAssault (original Xbox, 2002), made by static recompilation.
