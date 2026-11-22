@@ -3,8 +3,8 @@
 
 // the version Windows shows in the file's properties (VERSION at the repository's root)
 1 VERSIONINFO
-FILEVERSION 0,6,0,0
-PRODUCTVERSION 0,6,0,0
+FILEVERSION 0,6,1,0
+PRODUCTVERSION 0,6,1,0
 FILEOS 0x40004
 FILETYPE 0x1
 BEGIN
@@ -13,10 +13,14 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "FileDescription", "MechAssault native PC version (unofficial)"
-            VALUE "FileVersion", "0.6"
+            VALUE "FileVersion", "0.6.1"
             VALUE "ProductName", "MechAssault PC"
-            VALUE "ProductVersion", "0.6"
+            VALUE "ProductVersion", "0.6.1"
             VALUE "OriginalFilename", "MechAssault.exe"
+            VALUE "InternalName", "MechAssault"
+            VALUE "CompanyName", "MechAssault PC port (fan project)"
+            VALUE "LegalCopyright", "Port code: open source (see licenses). MechAssault is a trademark of Microsoft."
+            VALUE "Comments", "Runs your own MechAssault disc; builds the game code on this PC on first start."
         END
     END
     BLOCK "VarFileInfo"

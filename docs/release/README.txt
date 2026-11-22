@@ -1,4 +1,4 @@
-MechAssault - native PC version 0.6 (unofficial, work in progress)
+MechAssault - native PC version 0.6.1 (unofficial, work in progress)
 ==================================================================
 
 This is a native Windows version of MechAssault (original Xbox, 2002), made by static recompilation.
@@ -79,8 +79,8 @@ your report. After a crash a message box says where the log and crash dump were 
 (resources\logs\mechassault.log) lists Windows, the CPU, the graphics card and its driver, the settings, each
 controller plugged in, and any warnings and errors; a crash adds the crash address and call stack.
 
-If the setup says your copy is a release it does not support, start "Check my MechAssault copy.bat" (put it in the
-folder with default.xbe, or pick that folder when it asks). It writes MechAssault-copy-check.txt on your Desktop with
+If the setup says your copy is a release it does not support, start "Check my MechAssault copy.bat" and choose the
+default.xbe or disc image when it asks. It writes MechAssault-copy-check.txt on your Desktop with
 the copy's region, version, build date and fingerprints: send that file. It only reads; nothing is changed or sent.
 
 MechAssault is a trademark of Microsoft Corporation. This project is not affiliated with or endorsed by Microsoft,

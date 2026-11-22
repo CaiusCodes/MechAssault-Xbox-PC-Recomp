@@ -7,6 +7,7 @@
 #endif
 #include <windows.h>
 #include <dbghelp.h>
+#include <shellapi.h>  // mechassault-recomp patch: CommandLineToArgvW
 #include <timeapi.h>
 
 #include <algorithm>
@@ -36,6 +37,9 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
 
 namespace dispatch {
 uint32_t GuestFunctionAt(const void* pc);  // cpu/dispatch.cpp
+}
+namespace mechassault {
+int CheckCopyCommand(const std::wstring& path);  // mechassault-recomp patch: src/common/check_copy.cpp
 }
 
 namespace app {
@@ -392,12 +396,25 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     bool install_update = std::wcsstr(GetCommandLineW(), L"--install-update") != nullptr;
     // mechassault-recomp patch: --save-report too ("Make a problem report.bat"), into the same log as the updater's
     bool save_report = std::wcsstr(GetCommandLineW(), L"--save-report") != nullptr;
-    if (check_updates || install_update || save_report) log += "-update";
+    // and --check-copy [path] ("Check my MechAssault copy.bat", src/common/check_copy.cpp)
+    bool check_copy = std::wcsstr(GetCommandLineW(), L"--check-copy") != nullptr;
+    if (check_updates || install_update || save_report || check_copy) log += "-update";
     logx::Init(app::Paths().logs.string(), log, relaunched);  // breakdown-recomp patch: Paths()
     // mechassault-recomp patch: the build first
     LOGR("%s %s", app::kGame.log, *app::kGame.version ? app::kGame.version : "(no version: built outside git)");
     app::update::Cleanup();  // what an update left behind, at every start
     if (save_report) return app::ReportCommand();
+    if (check_copy) {
+        int argc = 0;
+        LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+        std::wstring path;
+        for (int i = 1; argv && i + 1 < argc; i++)
+            if (std::wcscmp(argv[i], L"--check-copy") == 0) path = argv[i + 1];
+        if (argv) LocalFree(argv);
+        int code = mechassault::CheckCopyCommand(path);
+        logx::Flush();
+        return code;
+    }
     if (check_updates || install_update) {
         app::Load();
         int code = app::update::CommandLine(install_update);
