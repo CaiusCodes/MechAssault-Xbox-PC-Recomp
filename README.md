@@ -1,49 +1,175 @@
-# MechAssault (Xbox, 2002) native PC recompilation — work in progress
+# MechAssault Xbox PC Recomp
 
-A static recompilation of the original Xbox game *MechAssault* (Day 1 Studios / Microsoft, 2002) to native x64
-Windows, built on the same pipeline as the Breakdown port: [TGP482/XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp)
-(vendored in `sdk/`, pristine in commit 1) with the Breakdown port's shared runtime work (commit 2) and MechAssault's
-own changes on top.
+A native Windows PC port of **MechAssault** (Day 1 Studios / Microsoft, original Xbox, 2002), built by static
+recompilation with [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp).
 
-**This repository contains no game code, no game assets and no recompiled output.** The game code is recompiled
-locally from the user's own `default.xbe`; `assets/`, `game_files/` and `generated/` are git-ignored.
+Play at **up to 4K and 60 or 120 FPS**, in true 16:9 and 21:9 widescreen, with keyboard and mouse look, split-screen
+and System Link multiplayer over LAN or a virtual LAN. No emulator required.
 
-## Status
+**Free and open-source.**
 
-Boots, plays the intro movies, runs the menus and briefings, loads Mission 1 and plays it (walking, aiming, firing,
-weapons, jump jets) at 60 fps with the game's own speed, true widescreen, keyboard and mouse. See `docs/`:
+Like the recomp and want to support future projects? You can
+tip me on [Ko-fi](https://ko-fi.com/caiuscodes).
 
-- `docs/PORTING_PROGRESS.md` — milestones, session log, how to build and test
-- `docs/MECHASSAULT_TECHNICAL_ANALYSIS.md` — the XBE: XDK 4831, sections, imports, boot, graphics, timing, input
-- `docs/BREAKDOWN_REUSE_AUDIT.md` — what came from Breakdown, how proven it was, what changed
-- `docs/GRAPHICS_AND_PERFORMANCE.md` — 60 fps, render scale, AA, widescreen, settings, measurements
-- `docs/KNOWN_ISSUES.md` — fixed and open problems
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/caiuscodes)
 
-## Layout
+![MechAssault Main Menu](docs/screenshots/main-menu.jpg)
 
-- `sdk/` — XboxXBE-Recomp + Breakdown's patches (`breakdown-recomp patch`) + MechAssault's (`mechassault-recomp patch`)
-- `config/` — `game.toml` (from `xbe_symbols`, one hand fix), `mechassault.toml` (hand-verified symbols, the
-  widescreen hook), `main.toml`
-- `src/common/` — game profile and options (`game_info.cpp`), keyboard, mouse aim, scripted test pad
-- `src/game/` — hooks into the recompiled code (widescreen)
-- `scripts/` — analysis (`xbeinfo.py`, `xdis.py`, `oovpa_scan.py`, `reconcile.py`, `libcalls_ma.py`, `thunk.py`),
-  build wrapper (`b.bat`, `env.bat`), test runner (`run.ps1`, pad scripts, `bench_scales.ps1`)
-- `analysis/` — metadata from the XBE (no code bytes)
+> **You must provide your own copy of MechAssault.** No original game files or assets are distributed with this
+> project. The setup imports the required files from your disc image or extracted game folder, and builds the game
+> code for your PC from your own copy on the first start.
 
-## Building
+## Download & Installation
 
-Visual Studio 2022+ with the C++ workload, LLVM clang, CMake and Ninja (the same toolchain as Breakdown). Put the
-extracted game at `assets\` (or a junction to it), then:
+**[Download the latest release](https://github.com/CaiusCodes/MechAssault-Xbox-PC-Recomp/releases)**
+
+1. Download the latest ZIP and extract the **MechAssault** folder anywhere you can write to (not Program Files).
+2. Run `MechAssault.exe`.
+3. Select your MechAssault disc image (`.iso`, a full disc dump or an xiso) or extracted game folder using
+   **Disc image...** or **Folder...**, or drop it on the setup window.
+4. Choose your options: fullscreen, desktop shortcut, unlocking the whole campaign, online games, the game's language,
+   and optionally another folder for your saves.
+5. Click **Play**. The first start copies the game and builds its code for your PC (about a minute, once).
+
+![Setup window](docs/screenshots/setup.png)
+
+After setup, simply run `MechAssault.exe` to play. Your disc image is no longer needed.
+
+**To run setup again:** start `MechAssault.exe --setup`, or delete `resources\game`.
+
+The installation is portable: the imported game, saves and settings stay inside the MechAssault folder. Saves can be
+kept in another folder instead (another drive or a synced folder): choose it under **Game save location** in setup.
+
+### Supported release
+
+**MechAssault (USA) Rev 1**, the 2003 reissue most copies are (`default.xbe` built 2003-08-08, certificate version 8,
+title ID `4D530017`). Copies patched by a mod pack or dump tool (region-free, HDD-ready, re-signed) are accepted as
+long as the game code is unchanged. The original 2002 disc (MechAssault (USA, Europe)) is not supported by this
+release, and System Link only works between copies of the same release.
+
+Not sure which one you have? Run **Check my MechAssault copy.bat** in the release folder and choose your
+`default.xbe` or disc image: it writes `MechAssault-copy-check.txt` on your Desktop.
+
+### System Requirements
+
+- Windows 10 or 11 (64-bit)
+- A DirectX 12 graphics card (integrated graphics work)
+- Your own MechAssault disc image or extracted game files (Rev 1)
+
+## Features
+
+### Graphics & Performance
+
+- **Native PC rendering** with DirectX 12
+- **60 FPS** by default, or 120 FPS or your monitor's rate; the game times everything itself, so its speed is unchanged
+- **True widescreen:** 16:9, 21:9 and wider show more at the sides; the radar and weapon gauges move out to the
+  screen's edges, menus and movies stay 4:3
+- **Render scale** 1x (the Xbox's 640x480) to 4x, or Auto
+- **FSR 1** upscaling, **SMAA** or FXAA anti-aliasing, anisotropic filtering, sharpening
+- Adjustable field of view
+- Every setting applies at once from the **F1** menu
+
+![MechAssault Gameplay](docs/screenshots/gameplay.jpg)
+
+### Controls & Quality of Life
+
+- Full **keyboard and mouse** support: mouse look turns your 'Mech and aims, rebindable keys, adjustable sensitivity
+- **Xbox controllers** and other gamepads
+- PC button prompts in the menus when no controller is connected, clickable with the mouse
+- Optional **unlock of the whole campaign**: every mission and movie from the mission select
+- Built-in update checker
+- Portable installation, with saves where you choose
+- **Make a problem report.bat** saves the logs and crash reports in a zip to send
+
+### Multiplayer
+
+- **Split-screen** for two players on one PC
+- **System Link** on a LAN, and over the internet through a virtual LAN (Radmin VPN, ZeroTier, Hamachi, Tailscale)
+  or a direct address
+
+#### Playing over LAN or a virtual LAN
+
+1. Every player runs the same version with the same release of the game (Rev 1).
+2. On a virtual LAN, join the same network and pick its adapter in **F1 > Network**.
+3. The host picks **Multiplayer > System Link**, a profile, then creates a game; the others find it in the Games List.
+
+To join by address instead, enter the host's public address in **F1 > Network > Join address**; the host forwards
+UDP ports 1000-1002. Windows Firewall may ask to allow MechAssault the first time a game is hosted or joined. Xbox
+Live is gone and stays greyed out.
+
+![MechAssault Split-screen](docs/screenshots/splitscreen.jpg)
+
+## Keyboard & Mouse Controls
+
+| Key | Action |
+|---|---|
+| W, A, S, D | Move |
+| Mouse | Turn and aim |
+| Left Click | Fire |
+| Right Click, Q or Mouse Wheel | Cycle weapons |
+| 1, 2, 3 | Energy, ballistic, missile weapons |
+| Space | Jump jets |
+| Shift or F | Defense |
+| Esc | Pause |
+| Enter / Backspace | Menu select / back |
+| F1 | Settings |
+
+Keys can be changed under **F1 > Controls**.
+
+## Updates
+
+Check for new versions through **F1 > Check for updates**. Updates are downloaded and installed without touching your
+imported game, saves or settings. Alternatively, download the latest release ZIP and extract it over your existing
+installation.
+
+## Known Limitations
+
+- Windows only.
+- Only MechAssault (USA) Rev 1 is accepted; the original 2002 release is not (yet).
+- Xbox Live and downloadable content are not supported.
+- Windows SmartScreen or antivirus programs may warn about the unsigned executable; see `ANTIVIRUS.txt` in the
+  release folder.
+- Windows Firewall may ask for permission for multiplayer.
+
+## Reporting Issues
+
+Found a bug? [Open a GitHub Issue](https://github.com/CaiusCodes/MechAssault-Xbox-PC-Recomp/issues) and attach the zip
+that **Make a problem report.bat** saves on your Desktop, or your latest log from:
+
+`resources\logs\mechassault.log`
+
+## Building from source
+
+Visual Studio 2022 or later with the C++ workload, LLVM clang, CMake and Ninja. Extract your Rev 1 game to
+`game_files\MechAssault (USA) (En,Fr,De) (Rev 1)\` (git-ignored), then:
 
 ```
-scripts\b.bat cmake --preset release
-scripts\b.bat cmake --build out\build\release -j 6
-out\build\release\MechAssault.exe
+scripts\b.bat cmake --preset release -B out/build/rev1 "-DXBE_ASSETS_DIR=%CD%/game_files/MechAssault (USA) (En,Fr,De) (Rev 1)" -DXBE_GENERATED_DIR=%CD%/generated-rev1
+scripts\b.bat cmake --build out/build/rev1 -j 6
+release.bat rev1
 ```
 
-`build.bat` does the same with prompts; `release.bat` makes the portable package (no game code: the player's PC
-builds it from their own copy on first start).
+`out\build\rev1` needs an `assets` junction to the same game folder to run from there. `release.bat rev1` makes the
+portable package, which holds no game code: the player's PC builds it from their own copy on the first start. Each
+GitHub release attaches that package as `MechAssault.zip`, which the updater looks for.
 
-**Releases:** the game's updater (F1 > Check for updates) installs the latest GitHub release, so each release must
-attach the package `release.bat` makes as an asset named exactly `MechAssault.zip` (the zip of the `MechAssault`
-folder). Tag releases with their version (`v0.5.1`); the updater compares those numbers. See `docs/testing.md`.
+More in `docs/`: `REV1.md` (the supported release and how the port moved to it), `PORTING_PROGRESS.md`,
+`MECHASSAULT_TECHNICAL_ANALYSIS.md`, `GRAPHICS_AND_PERFORMANCE.md`, `KNOWN_ISSUES.md` and `testing.md`.
+
+## Development & Credits
+
+This project builds upon the work of:
+
+- [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) by TGP482 – Original Xbox static recompilation
+  toolkit (vendored in `sdk/`).
+- The Breakdown Xbox PC port – Shared runtime work (setup, renderer, input, updater).
+- [SMAA](https://github.com/iryoku/smaa) by Jorge Jimenez et al. – Anti-aliasing.
+- AMD FidelityFX Super Resolution 1 – The upscaling algorithm, reimplemented.
+
+The project's own game-port code is released under [The Unlicense](LICENSE). The SDK and third-party dependencies
+retain their respective licences (`sdk/LICENSE`, `sdk/THIRD_PARTY.txt`).
+
+---
+
+*MechAssault, BattleTech, Xbox and Microsoft are trademarks or property of their respective owners. This is an
+independent fan project and is not affiliated with or endorsed by the rights holders.*

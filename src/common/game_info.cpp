@@ -102,5 +102,5 @@ const app::GameInfo app::kGame = {
                 L"1 2 3 energy, ballistic, missile · Space jump jets · Shift defense · Esc pause",
     .platform_line = L"Original Xbox · Title ID 4D530017",
     .version = MECHASSAULT_DESCRIBE,
-    .update_repo = "CaiusCodes/mechassault-xbox-pc-recomp",  // its releases carry MechAssault.zip (app/update.h)
+    .update_repo = "CaiusCodes/MechAssault-Xbox-PC-Recomp",  // its releases carry MechAssault.zip (app/update.h)
 };

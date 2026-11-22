@@ -18,7 +18,7 @@ Switches for unattended test runs of the Windows build. None of them changes how
 
 ## Updates
 
-The F1 menu's "Check for updates" asks GitHub for the latest release of `CaiusCodes/mechassault-xbox-pc-recomp`
+The F1 menu's "Check for updates" asks GitHub for the latest release of `CaiusCodes/MechAssault-Xbox-PC-Recomp`
 (`update_repo` in `src/common/game_info.cpp`, `sdk/runtime/app/update.cpp`). A release must attach the release package
 (`release.bat`'s zip of the `MechAssault` folder) as an asset named exactly `MechAssault.zip`. A 404 (no releases, or a
 private repository) shows "No releases yet". Versions compare by their numbers only: v0.5 < v0.5.1, and a development
