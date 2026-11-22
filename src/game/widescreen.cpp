@@ -11,6 +11,7 @@
 // middle (gpu/widescreen.h).
 #include <algorithm>
 #include <bit>
+#include <cstdlib>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -69,7 +70,12 @@ void MechAssaultWidenProjection(X86Context& ctx, uint8_t* base) {
     g_cull_x = k * f;
     g_cull_y = f;
     static int logged = 0;
-    if (logged++ < 4)
+    // XBE_CAMLOG=1 (tests): every change of the camera's field of view, with the time it happened
+    static const bool camlog = std::getenv("XBE_CAMLOG") != nullptr;
+    static float last_xs = 0;
+    bool changed = xs != last_xs;
+    last_xs = xs;
+    if (logged++ < 4 || (camlog && changed))
         LOGR("mechassault: camera x scale %.4f -> %.4f (view %.3f times 4:3, field of view %.0f%%)", xs, xs / (k * f), k,
              f * 100);
 }

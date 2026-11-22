@@ -73,12 +73,23 @@ void WriteF(uint32_t va, float v) {
 }
 
 // turns player 1's 'Mech and tilts the view by these degrees; false when there is no 'Mech in play to turn
+// why the last Look() could not turn the 'Mech directly, logged when it changes (problem reports)
+const char* g_look_state = "";
+bool LookState(const char* why) {
+    if (std::strcmp(why, g_look_state) != 0) {
+        g_look_state = why;
+        LOGR("mouse: %s", why);
+    }
+    return *why == 'd';  // "direct ..."
+}
+
 bool Look(float yaw, float pitch) {
-    if (!InPlay()) return false;
+    if (!InPlay()) return LookState("not in play, the mouse drives the right stick");
     uint32_t pilot = kernel::R32(kPilot);
-    if (!pilot || kernel::R32(pilot) != kPilotVtable) return false;
+    if (!pilot || kernel::R32(pilot) != kPilotVtable) return LookState("no pilot, the mouse drives the right stick");
     uint32_t mech = kernel::R32(pilot + kMechOfPilot);
-    if (!mech || kernel::R32(mech) != kMechVtable) return false;
+    if (!mech || kernel::R32(mech) != kMechVtable) return LookState("pilot not in a 'Mech, the mouse drives the right stick");
+    LookState("direct look");
     if (yaw != 0) WriteF(mech + kHeadingAt, ReadF(mech + kHeadingAt) + yaw);
     if (pitch != 0) WriteF(pilot + kPitchAt, std::clamp(ReadF(pilot + kPitchAt) + pitch, kPitchUp, kPitchDown));
     return true;
