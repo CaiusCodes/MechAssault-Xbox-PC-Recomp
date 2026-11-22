@@ -1,0 +1,31 @@
+If Windows or your antivirus warns about MechAssault PC
+=======================================================
+
+Why it happens
+--------------
+MechAssault.exe is a new program that isn't signed with a paid code-signing certificate and that few people have
+downloaded yet. Windows SmartScreen and many antivirus programs warn about anything like that. It also does things
+that look unusual for a game: on the first start it builds the game code from your disc with the compiler that comes
+with it (clang.exe, lld-link.exe), writes a MechAssault.dll and loads it, and "Check for updates" can download a
+new version. None of it touches anything outside the MechAssault folder (and your Desktop shortcut, if you ticked it).
+
+Microsoft Defender finds nothing in it (scanned before release).
+
+If you see "Windows protected your PC" (SmartScreen)
+----------------------------------------------------
+Click "More info", then "Run anyway". It only asks once for that file.
+
+To avoid it for the whole folder: before unzipping, right-click the downloaded .zip, choose Properties, tick
+"Unblock" at the bottom and press OK. Then unzip.
+
+If your antivirus quarantined or deleted a file
+-----------------------------------------------
+1. Note which file it named (usually MechAssault.exe, MechAssault.dll, clang.exe or lld-link.exe).
+2. Open the antivirus and find its quarantine or "protection history" (Windows Security: Virus & threat protection,
+   Protection history).
+3. Restore the file and choose "Allow" or "Allow on device".
+4. Add an exclusion for the MechAssault folder (Windows Security: Virus & threat protection, Manage settings,
+   Exclusions, Add an exclusion, Folder), or the equivalent in your antivirus, then start MechAssault.exe again.
+
+Only do this for a copy you got from the project's own release or from the person who builds it. If in doubt, send
+the file to virustotal.com first and see what it says.

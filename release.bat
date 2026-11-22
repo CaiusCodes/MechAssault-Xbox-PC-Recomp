@@ -24,6 +24,7 @@ copy /y "%OUT%\%GAME_EXE%.exe" "%PKG%\" >nul || exit /b 1
 copy /y docs\release\README.txt "%PKG%\README.txt" >nul
 copy /y "docs\release\Check my MechAssault copy.bat" "%PKG%\" >nul || exit /b 1
 copy /y "docs\release\Make a problem report.bat" "%PKG%\" >nul || exit /b 1
+copy /y "docs\release\ANTIVIRUS.txt" "%PKG%\" >nul || exit /b 1
 copy /y "%SDK%\THIRD_PARTY.txt" "%PKG%\licenses\" >nul
 copy /y "%SDK%\LICENSE" "%PKG%\licenses\XboxXBE-Recomp-LICENSE.txt" >nul
 copy /y "%SDK%\tools\LLVM-LICENSE.txt" "%PKG%\licenses\" >nul
