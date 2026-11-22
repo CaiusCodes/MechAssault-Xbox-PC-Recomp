@@ -1,4 +1,4 @@
-MechAssault - native PC version 0.6.1 (unofficial, work in progress)
+MechAssault - native PC version 0.6.2 (unofficial, work in progress)
 ==================================================================
 
 This is a native Windows version of MechAssault (original Xbox, 2002), made by static recompilation.
@@ -73,15 +73,16 @@ licenses             licences of the included software
 
 Reporting a problem
 -------------------
-"Make a problem report.bat" in this folder saves a zip on your Desktop (MechAssault-report-<date>-<time>.zip) with
-the logs, the newest crash dumps, settings.toml and a short info.txt. Nothing is sent by itself: attach the zip to
-your report. After a crash a message box says where the log and crash dump were saved. The log
-(resources\logs\mechassault.log) lists Windows, the CPU, the graphics card and its driver, the settings, each
+After a crash a message box offers to save a problem report: a zip on your Desktop
+(MechAssault-report-<date>-<time>.zip) with the logs, the newest crash dumps, settings.toml and a short info.txt.
+Nothing is sent by itself: attach the zip to your report. To make one any time (for a freeze, say), start
+MechAssault.exe --save-report (Windows key + R, then drag MechAssault.exe into the box and add --save-report).
+The log (resources\logs\mechassault.log) lists Windows, the CPU, the graphics card and its driver, the settings, each
 controller plugged in, and any warnings and errors; a crash adds the crash address and call stack.
 
-If the setup says your copy is a release it does not support, start "Check my MechAssault copy.bat" and choose the
-default.xbe or disc image when it asks. It writes MechAssault-copy-check.txt on your Desktop with
-the copy's region, version, build date and fingerprints: send that file. It only reads; nothing is changed or sent.
+If the setup says your copy is a release it does not support, it also saves MechAssault-copy-check.txt on your
+Desktop with the copy's region, version, build date and fingerprints: send that file. MechAssault.exe --check-copy
+makes the same check on any default.xbe, game folder or disc image you choose. It only reads; nothing is changed.
 
 MechAssault is a trademark of Microsoft Corporation. This project is not affiliated with or endorsed by Microsoft,
 Day 1 Studios or WizKids.

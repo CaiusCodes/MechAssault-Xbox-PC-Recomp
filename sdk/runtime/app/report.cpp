@@ -10,6 +10,7 @@
 #endif
 #include <windows.h>
 #include <objbase.h>
+#include <shellapi.h>
 #include <shlobj.h>
 
 #include <algorithm>
@@ -146,6 +147,13 @@ int ReportCommand() {
     }
     LOGR("report: %s, %zu logs, %zu crash dumps", Utf8(zip.wstring()).c_str(), logs, dumps);
     logx::Flush();
+    // the zip selected in Explorer, ready to attach (not for tests)
+    if (!(dir && *dir)) {
+        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        std::wstring select = L"/select,\"" + zip.wstring() + L"\"";
+        ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr, SW_SHOWNORMAL);
+        CoUninitialize();
+    }
     return 0;
 }
 

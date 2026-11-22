@@ -28,6 +28,19 @@ FetchContent_MakeAvailable(zydis tomlplusplus imgui SDL3)
 # headers the generated code includes
 set(XBE_COMPILER_DIR ${CMAKE_BINARY_DIR}/compiler)
 get_filename_component(XBE_LLVM_BIN ${CMAKE_CXX_COMPILER} DIRECTORY)
+# mechassault-recomp patch: the clang.exe and lld-link.exe shipped to players come from Visual Studio's LLVM when it is
+# installed: Microsoft signs those, and unsigned compilers in a download are what browsers' and antivirus programs'
+# reputation checks flag. Any LLVM that compiles the generated code will do (the player's build only compiles C++ and
+# links a DLL against the executable's import library). XBE_SHIP_LLVM_BIN picks another folder.
+file(GLOB XBE_VS_LLVM_BINS "$ENV{ProgramFiles}/Microsoft Visual Studio/*/*/VC/Tools/Llvm/x64/bin/clang.exe")
+set(XBE_SHIP_LLVM_DEFAULT ${XBE_LLVM_BIN})
+if(XBE_VS_LLVM_BINS)
+    list(SORT XBE_VS_LLVM_BINS)
+    list(GET XBE_VS_LLVM_BINS -1 XBE_VS_CLANG)
+    get_filename_component(XBE_SHIP_LLVM_DEFAULT ${XBE_VS_CLANG} DIRECTORY)
+endif()
+set(XBE_SHIP_LLVM_BIN ${XBE_SHIP_LLVM_DEFAULT} CACHE PATH "the clang.exe and lld-link.exe shipped for the player's build")
+message(STATUS "Shipping clang and lld-link from ${XBE_SHIP_LLVM_BIN}")
 file(GLOB XBE_GAME_CONFIGS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/config/*.toml)
 set(XBE_COMPILER_HEADERS ${XBE_SDK_DIR}/runtime/cpu/x86_ops.h ${XBE_SDK_DIR}/runtime/cpu/x86_context.h)
 file(GLOB XBE_FREESTANDING_HEADERS CONFIGURE_DEPENDS ${XBE_SDK_DIR}/runtime/cpu/freestanding/*)
@@ -42,7 +55,7 @@ endforeach()
 add_custom_target(compiler_files ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory ${XBE_COMPILER_DIR}/config ${XBE_COMPILER_DIR}/include/cpu
             ${XBE_COMPILER_DIR}/include/freestanding
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${XBE_LLVM_BIN}/clang.exe ${XBE_LLVM_BIN}/lld-link.exe
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${XBE_SHIP_LLVM_BIN}/clang.exe ${XBE_SHIP_LLVM_BIN}/lld-link.exe
             ${XBE_SDK_DIR}/tools/LLVM-LICENSE.txt ${XBE_COMPILER_DIR}
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${XBE_GAME_CONFIGS} ${XBE_COMPILER_DIR}/config
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${XBE_COMPILER_HEADERS} ${XBE_COMPILER_DIR}/include/cpu

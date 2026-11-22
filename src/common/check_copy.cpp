@@ -251,7 +251,7 @@ std::vector<std::string> Report(const std::vector<uint8_t>& b, const fs::path& w
 
 }  // namespace
 
-int CheckCopyCommand(const std::wstring& arg) {
+int CheckCopyCommand(const std::wstring& arg, bool open) {
     fs::path source = arg.empty() ? Ask() : fs::path(arg);
     if (source.empty()) return 2;
     std::vector<uint8_t> xbe;
@@ -286,7 +286,7 @@ int CheckCopyCommand(const std::wstring& arg) {
         for (auto& l : lines) f << l << "\r\n";
     }
     LOGR("check copy: %s -> %s", Utf8(source.wstring()).c_str(), Utf8(out.wstring()).c_str());
-    if (!(dir && *dir)) ShellExecuteW(nullptr, L"open", out.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    if (open && !(dir && *dir)) ShellExecuteW(nullptr, L"open", out.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     return 0;
 }
 

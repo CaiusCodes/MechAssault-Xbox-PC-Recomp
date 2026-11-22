@@ -47,8 +47,8 @@ title ID `4D530017`). Copies patched by a mod pack or dump tool (region-free, HD
 long as the game code is unchanged. The original 2002 disc (MechAssault (USA, Europe)) is not supported by this
 release, and System Link only works between copies of the same release.
 
-Not sure which one you have? Run **Check my MechAssault copy.bat** in the release folder and choose your
-`default.xbe` or disc image: it writes `MechAssault-copy-check.txt` on your Desktop.
+Not sure which one you have? When the setup refuses a copy it saves `MechAssault-copy-check.txt` on your Desktop,
+saying which release it is; `MechAssault.exe --check-copy` checks any `default.xbe`, game folder or disc image.
 
 ### System Requirements
 
@@ -79,7 +79,7 @@ Not sure which one you have? Run **Check my MechAssault copy.bat** in the releas
 - Optional **unlock of the whole campaign**: every mission and movie from the mission select
 - Built-in update checker
 - Portable installation, with saves where you choose
-- **Make a problem report.bat** saves the logs and crash reports in a zip to send
+- After a crash, a **problem report** (logs and crash reports in a zip on your Desktop) is one click away
 
 ### Multiplayer
 
@@ -134,7 +134,7 @@ installation.
 ## Reporting Issues
 
 Found a bug? [Open a GitHub Issue](https://github.com/CaiusCodes/MechAssault-Xbox-PC-Recomp/issues) and attach the zip
-that **Make a problem report.bat** saves on your Desktop, or your latest log from:
+the game offers to save on your Desktop after a crash (or `MechAssault.exe --save-report`), or your latest log from:
 
 `resources\logs\mechassault.log`
 

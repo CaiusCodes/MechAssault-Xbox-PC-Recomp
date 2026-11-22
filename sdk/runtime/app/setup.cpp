@@ -39,6 +39,10 @@
 #pragma comment(lib, "uuid.lib")
 #pragma comment(lib, "msimg32.lib")
 
+namespace mechassault {
+int CheckCopyCommand(const std::wstring& path, bool open);  // mechassault-recomp patch: src/common/check_copy.cpp
+}
+
 namespace app {
 
 namespace {
@@ -657,6 +661,12 @@ void OnInspected() {
     g->source = c.ok ? Source::Ok : Source::Bad;
     g->message = Wide(c.problem);
     g->fix = Wide(c.fix);
+    // mechassault-recomp patch: MechAssault but not a release this build runs: a report on the copy for the player to
+    // send (MechAssault-copy-check.txt on the Desktop, src/common/check_copy.cpp), in place of the old .bat
+    if (!c.ok && g->profile->title_id && c.title_id == g->profile->title_id && !c.release_match &&
+        mechassault::CheckCopyCommand(g->chosen.wstring(), false) == 0)
+        g->fix += L" A report on your copy was saved on your Desktop as MechAssault-copy-check.txt: send it if you ask "
+                  L"for help.";
     if (SetupTest() && c.ok) PostMessageW(g->hwnd, WM_KEYDOWN, VK_RETURN, 0);  // mechassault-recomp patch
 }
 

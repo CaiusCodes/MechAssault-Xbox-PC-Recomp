@@ -39,7 +39,7 @@ namespace dispatch {
 uint32_t GuestFunctionAt(const void* pc);  // cpu/dispatch.cpp
 }
 namespace mechassault {
-int CheckCopyCommand(const std::wstring& path);  // mechassault-recomp patch: src/common/check_copy.cpp
+int CheckCopyCommand(const std::wstring& path, bool open = true);  // mechassault-recomp patch: src/common/check_copy.cpp
 }
 
 namespace app {
@@ -162,10 +162,16 @@ LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
     if (!TestRun()) {
         wchar_t text[768];
         swprintf(text, 768,
-                 L"%ls has crashed, sorry.\n\nA log and a crash dump were saved in\n%ls\n\nTo report it, start "
-                 L"\"Make a problem report.bat\" in the %ls folder: it saves a zip on your Desktop to send.",
-                 kGame.title, Paths().logs.c_str(), kGame.title);
-        MessageBoxW(nullptr, text, kGame.short_title, MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
+                 L"%ls has crashed, sorry.\n\nA log and a crash dump were saved in\n%ls\n\nSave a problem report "
+                 L"(a zip with them) on your Desktop now, to send?",
+                 kGame.title, Paths().logs.c_str());
+        // mechassault-recomp patch: the report is made by a new copy of the program (MechAssault.exe --save-report),
+        // not from this crashed one; there are no .bat files in the package (antivirus programs flag them)
+        if (MessageBoxW(nullptr, text, kGame.short_title, MB_YESNO | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND) == IDYES) {
+            wchar_t exe[MAX_PATH];
+            GetModuleFileNameW(nullptr, exe, MAX_PATH);
+            ShellExecuteW(nullptr, L"open", exe, L"--save-report", nullptr, SW_SHOWNORMAL);
+        }
     }
     return EXCEPTION_CONTINUE_SEARCH;
 }
