@@ -30,30 +30,26 @@ namespace {
 // the F1 menu's game tabs: Controls, then Gameplay (field of view, language, the campaign unlock)
 void GameMenu() {
     mechassault::MouseMenu();
-    if (!app::MenuPage("Gameplay")) return;
-    int fov = int(mechassault::g_fov_percent);
-    app::MenuRow("Field of view");
-    if (ImGui::SliderInt("##fov", &fov, 80, 130, "%d%%")) {
-        mechassault::g_fov_percent = uint32_t(fov);
-        app::Save();
-    }
-    app::MenuHint("Of the game's own view, for every camera including cutscenes; 100% is the original.");
+    if (!app::MenuPage("Game")) return;
+    app::Row("Field of view");
+    if (app::Slider("##fov", mechassault::g_fov_percent, 80, 130, "%d%%")) app::Save();
+    app::Hint("Of the game's own view, for every camera including cutscenes; 100% is the original.");
     // the console language the game is told; it reads it as it starts
     static const std::pair<const char*, uint32_t> kLanguages[] = {{"English", 1}, {"Franç" "ais", 4}, {"Deutsch", 3}};
     int lang = 0;
     for (int i = 0; i < 3; i++)
         if (kLanguages[i].second == app::Get().language) lang = i;
     const char* names[] = {kLanguages[0].first, kLanguages[1].first, kLanguages[2].first};
-    app::MenuRow("Language");
+    app::Row("Language");
     if (ImGui::Combo("##language", &lang, names, 3)) {
         app::Get().language = kLanguages[lang].second;
         app::Save();
     }
-    app::MenuHint("Text and speech, from the next time the game starts.");
-    app::MenuRow("Unlock whole campaign");
-    if (ImGui::Checkbox("##unlock", &mechassault::g_unlock_campaign)) app::Save();
-    app::MenuHint("Every mission and movie in the campaign's Select Mission, from the next visit to it.");
-    app::EndMenuPage();
+    app::Hint("Text and speech, from the next time the game starts.");
+    app::Row("Unlock whole campaign");
+    if (app::Toggle("##unlock", mechassault::g_unlock_campaign)) app::Save();
+    app::Hint("Every mission and movie in the campaign's Select Mission, from the next visit to it. It is saved in your "
+              "profile as you play on.");
 }
 
 // keyboard and mouse buttons (rebindable), then a test script's presses when XBE_PAD_SCRIPT is set

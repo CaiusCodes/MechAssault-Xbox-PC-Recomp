@@ -1,4 +1,4 @@
-// mechassault-recomp (from the Breakdown port): keyboard and mouse buttons as controller port 1, rebindable in the F1
+﻿// mechassault-recomp (from the Breakdown port): keyboard and mouse buttons as controller port 1, rebindable in the F1
 // menu's Controls section. Each control of the Xbox pad (buttons, triggers, d-pad, stick directions) takes up to two
 // keys or mouse buttons, merged with a real pad on that port. The defaults follow MechAssault's own Normal layouts
 // (Player Setup > Edit Profile > Controls, read in a scripted Windows run 2026-11-02): left stick move forward/back
@@ -26,6 +26,7 @@
 #include <imgui.h>
 #include <toml++/toml.hpp>
 #include "app/app.h"
+#include "app/overlay.h"
 #endif
 
 namespace mechassault {
@@ -148,7 +149,7 @@ constexpr KeyName kNames[] = {
 // F1 to F3 belong to the settings menu, the FPS counter and frame capture; the plain Shift, Ctrl and Alt codes
 // stand for either side, and their sided codes are offered instead
 bool Bindable(int vk) {
-    if (vk <= 0 || vk > 0xFE || vk == VK_F1 || vk == VK_F2 || vk == VK_F3) return false;
+    if (vk <= 0 || vk > 0xFE || vk == VK_F1 || vk == VK_F2 || vk == VK_F3 || vk == VK_F8) return false;
     if (vk == VK_SHIFT || vk == VK_CONTROL || vk == VK_MENU || vk == VK_LWIN || vk == VK_RWIN || vk == VK_CANCEL)
         return false;
     return true;
@@ -378,7 +379,8 @@ void BindingsMenu() {
     static int listen_control = -1, listen_slot = 0;
     static bool released = false;  // every key up since listening began, so the click that started it is not taken
     static double listen_start = 0;
-    ImGui::SeparatorText("Keys and mouse buttons");
+    app::Heading("Keys and mouse");
+    app::Rows(false);  // the bindings are a table of their own
     // listening: the first key or mouse button pressed after all were released; nothing for 5 seconds cancels
     bool just_bound = false;  // a right-click that was just bound is not also a clear
     if (listen_control >= 0) {
@@ -400,13 +402,10 @@ void BindingsMenu() {
         }
         if (listen_control >= 0 && ImGui::GetTime() - listen_start > 5) listen_control = -1;
     }
-    ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("Click a binding, then press a key, mouse button or wheel. Right-click clears it.");
-    ImGui::PopTextWrapPos();
     if (ImGui::BeginTable("##bindings", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 2.0f);
         ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("Alternative", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Second key", ImGuiTableColumnFlags_WidthStretch, 1.0f);
         ImGui::TableHeadersRow();
         for (int c = 0; c < kControls; c++) {
             ImGui::TableNextRow();
@@ -426,6 +425,8 @@ void BindingsMenu() {
                     listen_start = ImGui::GetTime();
                     TakeWheelSeen();  // only a turn from now on
                 }
+                app::Hint("Click, then press a key, mouse button or wheel within 5 seconds. Right-click clears it. F1, "
+                          "F2, F3 and F8 stay the menu's.");
                 if (!just_bound && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
                     g_bind[c][s] = 0;
                     if (listening) listen_control = -1;
@@ -436,7 +437,7 @@ void BindingsMenu() {
         }
         ImGui::EndTable();
     }
-    if (ImGui::Button("Reset to defaults")) {
+    if (ImGui::Button("Reset keys")) {
         ResetBindings();
         listen_control = -1;
         app::Save();

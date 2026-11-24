@@ -286,21 +286,17 @@ bool MouseMessage(void* hwnd_, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t
 void MouseMenu() {
 #ifdef _WIN32
     if (!app::MenuPage("Controls")) return;
-    app::MenuRow("Mouse aim");
-    bool changed = ImGui::Checkbox("##aim", &g_mouse_aim);
-    app::MenuHint("The mouse turns your 'Mech and looks up and down. The cursor is held while you play.");
-    int sens = int(g_mouse_sensitivity);
-    app::MenuRow("Mouse sensitivity");
-    if (ImGui::SliderInt("##sens", &sens, 10, 400, "%d%%")) {
-        g_mouse_sensitivity = uint32_t(sens);
-        changed = true;
-    }
-    app::MenuRow("Invert mouse Y");
-    changed |= ImGui::Checkbox("##invert", &g_mouse_invert_y);
+    app::Row("Mouse look");
+    bool changed = app::Toggle("##aim", g_mouse_aim);
+    app::Hint("The mouse turns your 'Mech and looks up and down. The cursor is held while you play.");
+    app::Row("Sensitivity");
+    changed |= app::Slider("##sens", g_mouse_sensitivity, 10, 400, "%d%%");
+    app::Hint("How far the mouse turns: 100% is 0.05 degrees a count.");
+    app::Row("Invert Y");
+    changed |= app::Toggle("##invert", g_mouse_invert_y);
+    app::Hint("Mouse up looks down.");
     if (changed) app::Save();
-    ImGui::Spacing();
     BindingsMenu();
-    app::EndMenuPage();
 #endif
 }
 
