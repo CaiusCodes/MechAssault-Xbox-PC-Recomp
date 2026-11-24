@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdlib>
 #include <deque>
 #include <map>
 #include <optional>
@@ -132,6 +133,8 @@ struct Gains {
 struct Voice {
     uint32_t obj = 0;
     bool stream = false;
+    uint64_t log_in = 0, log_done = 0;  // XBE_SNDLOG: frames submitted and played since the stream started
+    int64_t log_t0 = 0;
     int refs = 1;
     // format
     uint16_t tag = 1, channels = 1, bits = 16, align = 2;
@@ -203,6 +206,12 @@ uint32_t FramesOf(const Voice& v, uint32_t bytes) {
     if (v.tag == 0x69) return bytes / (36u * v.channels) * 64;  // WAVE_FORMAT_XBOX_ADPCM
     return bytes / std::max<uint32_t>(v.align, 1);
 }
+// mechassault-recomp patch: XBE_SNDLOG=1 logs how sounds start and end (finding cut-off speech)
+bool SndLog() {
+    static const bool on = std::getenv("XBE_SNDLOG") != nullptr;
+    return on;
+}
+
 uint32_t BytesOf(const Voice& v, uint32_t frames) {
     if (v.tag == 0x69) return frames / 64 * 36 * v.channels;
     return frames * v.align;
@@ -520,6 +529,7 @@ std::optional<Cursor> StreamFrame(Voice& v) {
         v.packets.pop_front();
         pk.used = pk.size;
         Complete(v, pk, 0);
+        v.log_done += FramesOf(v, pk.size);
         v.pos -= FramesOf(v, pk.size);
         f = uint32_t(v.pos);
     }
@@ -546,6 +556,7 @@ std::optional<Cursor> BufferFrame(Voice& v) {
     uint32_t end = FramesOf(v, v.looping ? v.loop_start + v.loop_len : v.play_len);
     if (f >= end) {
         if (!v.looping || end <= start) {
+            if (SndLog()) LOGR("snd: buffer %08X ends at frame %u", v.obj, end);
             v.playing = false;
             v.pos = 0;
             return std::nullopt;
@@ -974,6 +985,8 @@ BUFFER(SetBufferData, 3) {
     return 0;
 }
 BUFFER(Play, 4) {
+    if (SndLog())
+        LOGR("snd: buffer %08X play flags %X, %u bytes from %u, rate %u", v.obj, a[3], v.play_len, v.play_start, v.rate);
     v.has_gain = false;  // a new sound does not ramp from the last one's levels
     v.playing = true;
     v.looping = a[3] & 1;
@@ -982,11 +995,15 @@ BUFFER(Play, 4) {
     return 0;
 }
 BUFFER(Stop, 1) {
+    if (SndLog() && v.playing) LOGR("snd: buffer %08X stop at frame %lld of %u", v.obj, (long long)v.pos, FramesOf(v, v.play_len));
     v.playing = false;
     return 0;
 }
 // (this, time low, time high, flags): stops now, the release envelope is not reproduced
 BUFFER(StopEx, 4) {
+    if (SndLog() && v.playing)
+        LOGR("snd: buffer %08X stopex time %08X%08X flags %X at frame %lld of %u", v.obj, a[2], a[1], a[3], (long long)v.pos,
+             FramesOf(v, v.play_len));
     v.playing = false;
     return 0;
 }
@@ -1190,6 +1207,12 @@ STREAM(Process, 3) {
     uint32_t in = a[1];
     if (!in) return 0;
     Packet pk{R32(in), R32(in + 4), R32(in + 8), R32(in + 12), R32(in + 16)};
+    if (SndLog() && !v.active) {
+        LOGR("snd: stream %08X starts, packet %u bytes, rate %u, freq %u", v.obj, pk.size, v.rate, v.freq);
+        v.log_in = v.log_done = 0;
+        v.log_t0 = NowMs();
+    }
+    v.log_in += FramesOf(v, pk.size);
     if (pk.completed_ptr) W32(pk.completed_ptr, 0);
     if (pk.status_ptr) W32(pk.status_ptr, kPacketPending);
     v.packets.push_back(pk);
@@ -1199,15 +1222,28 @@ STREAM(Process, 3) {
     return 0;
 }
 STREAM(Discontinuity, 1) {
+    if (SndLog()) LOGR("snd: stream %08X discontinuity, %zu packets queued", v.obj, v.packets.size());
     if (!v.packets.empty()) v.ending = true;
     else if (v.active) FlushStream(v);
     return 0;
 }
 STREAM(Flush, 1) {
+    if (SndLog() && v.active) LOGR("snd: stream %08X flush, %zu packets dropped", v.obj, v.packets.size());
     FlushStream(v);
     return 0;
 }
 STREAM(FlushEx, 4) {
+    if (SndLog() && v.active) {
+        float peak = 0;  // how loud the dropped audio is (0 silence, 1 full scale)
+        uint32_t frames = 0;
+        for (size_t i = 0; i < v.packets.size(); i++)
+            for (uint32_t f = i ? 0 : uint32_t(v.pos); f < FramesOf(v, v.packets[i].size); f++, frames++)
+                peak = std::max(peak, std::fabs(Sample(v, v.packets[i].data, f, 0)));
+        ForgetBlocks(v);
+        LOGR("snd: stream %08X flushex time %08X%08X flags %X, %zu packets dropped: %.2f s, peak %.3f; played %.2f s of %.2f "
+             "in %.2f s", v.obj, a[2], a[1], a[3], v.packets.size(), v.rate ? double(frames) / v.rate : 0.0, peak,
+             double(v.log_done + uint64_t(v.pos)) / v.rate, double(v.log_in) / v.rate, (NowMs() - v.log_t0) / 1000.0);
+    }
     if (a[3] && !v.active) return 0;
     FlushStream(v);
     return 0;
