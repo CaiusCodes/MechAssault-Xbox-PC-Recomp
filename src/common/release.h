@@ -14,6 +14,7 @@ struct GameRelease {
     uint32_t pilot;         // player 1's pilot pointer (src/common/mouse_aim.cpp)
     uint32_t pilot_vtable;  // its class
     uint32_t mech_vtable;   // the 'Mech it drives (pilot +0x10)
+    uint32_t control_vtable;  // the 'Mech's controller ('Mech +0xC), which keeps the view's pitch (+0x178)
     uint32_t progress;      // the profile's campaign progress block (src/game/campaign.cpp)
     uint32_t in_play;       // a word that is 0 on every front-end screen and in the pause menu (src/game/campaign.cpp)
     uint32_t memcpy;        // the game's CRT memcpy (src/game/selftest.cpp)

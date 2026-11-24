@@ -42,7 +42,7 @@ only in relative call offsets). An address is placed where the 48 bytes around i
   (0x3B1FF8) and memcpy (0x1ED440) by matching; the pilot pointer (0x3B3A24) and the in-play word (0x380100) by the
   data shift of their neighbours (+0x2BD98, +0x29040). Checked in a run (`XBE_PEEK`, `logf`): 0x380100 reads 0 on
   the title and menus and in the pause menu, 0x10 in Mission 1; the pilot chain gives the 'Mech's heading at +0x2B0
-  (0 -> 272 degrees while the right stick turns it) and the view pitch at +0x478 (50, the stick's limit, with the
+  (0 -> 272 degrees while the right stick turns it) and the view pitch (now the controller's +0x178, issue #3; pilot +0x478 only matched it in Mission 1) (50, the stick's limit, with the
   stick held down). The memcpy selftest passes (65 lengths x 16 alignments).
 
 ## Building

@@ -3,7 +3,11 @@
 //   0x387C8C          player 1's pilot (vtable 0x2FA4C0); its +0x10 is the 'Mech it drives (vtable 0x2FDA50)
 //   'Mech +0x2B0      the heading the right stick turns, degrees; the body (+0x26C) and the camera follow it the
 //                     same frame (setting it 90 degrees on turned the body there by the next frame)
-//   pilot +0x478      the view's pitch, degrees, 0 level, positive down, held between -35 and 50 by the stick
+//   'Mech +0xC        its controller (vtable 0x2FC358, Rev 1 0x31E5A0); controller +0x178 is the view's pitch,
+//                     degrees, 0 level, positive down, held between -35 and 50 by the stick. In Mission 1 the
+//                     controller sits 0x300 after the pilot, so pilot +0x478 was the same value; Mission 2 allocates
+//                     them apart, and writing pilot +0x478 there tilted nothing (issue #3). Mission 4 puts another
+//                     object between ('Mech +0xC, then its +0xC); the controller's +8 is the pilot
 // Both are integrated state the game keeps, so the mouse adds its turn to them once and nothing undoes it: a turn is
 // exact at any speed, with no stick dead zone, rate cap or ramp in between (the MechAssault 2 recomp, LegendaryXP/
 // Mechassault2-recomp, found the stick path cannot feel right for the same engine and hooked heading and pitch).
@@ -56,7 +60,8 @@ std::atomic<int32_t> g_dx{0}, g_dy{0};  // raw counts the game has not taken yet
 #define kPilot (mechassault::Current().pilot)
 #define kPilotVtable (mechassault::Current().pilot_vtable)
 #define kMechVtable (mechassault::Current().mech_vtable)
-constexpr uint32_t kMechOfPilot = 0x10, kHeadingAt = 0x2B0, kPitchAt = 0x478;
+#define kControlVtable (mechassault::Current().control_vtable)
+constexpr uint32_t kMechOfPilot = 0x10, kHeadingAt = 0x2B0, kControlOfMech = 0xC, kPitchAt = 0x178;
 constexpr float kPitchUp = -35.0f, kPitchDown = 50.0f;  // the stick's limits
 
 float ReadF(uint32_t va) {
@@ -89,9 +94,15 @@ bool Look(float yaw, float pitch) {
     if (!pilot || kernel::R32(pilot) != kPilotVtable) return LookState("no pilot, the mouse drives the right stick");
     uint32_t mech = kernel::R32(pilot + kMechOfPilot);
     if (!mech || kernel::R32(mech) != kMechVtable) return LookState("pilot not in a 'Mech, the mouse drives the right stick");
+    // the controller, or a layer in front of it (Mission 4 has one, vtable 0x32A640 in Rev 1) whose +0xC leads on
+    uint32_t control = kernel::R32(mech + kControlOfMech);
+    for (int hop = 0; hop < 4 && control && kernel::R32(control) != kControlVtable; hop++)
+        control = kernel::R32(control + kControlOfMech);
+    if (!control || kernel::R32(control) != kControlVtable || kernel::R32(control + 8) != pilot)
+        return LookState("'Mech without its controller, the mouse drives the right stick");
     LookState("direct look");
     if (yaw != 0) WriteF(mech + kHeadingAt, ReadF(mech + kHeadingAt) + yaw);
-    if (pitch != 0) WriteF(pilot + kPitchAt, std::clamp(ReadF(pilot + kPitchAt) + pitch, kPitchUp, kPitchDown));
+    if (pitch != 0) WriteF(control + kPitchAt, std::clamp(ReadF(control + kPitchAt) + pitch, kPitchUp, kPitchDown));
     return true;
 }
 

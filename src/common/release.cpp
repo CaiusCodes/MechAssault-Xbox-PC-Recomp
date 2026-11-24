@@ -10,9 +10,9 @@ namespace {
 
 // Rev 1 (2003-08-08, xbe SHA-1 372a01bb..., code 01462435...); the data moved up 0x29040 (front-end globals) and
 // 0x2BD98 (the player and profile) against 2002, the code by section
-constexpr GameRelease kRev1{"Rev 1 (2003)", 0x247130, 0x3B3A24, 0x31C708, 0x31FCA0, 0x3B1FF8, 0x380100, 0x1ED440};
+constexpr GameRelease kRev1{"Rev 1 (2003)", 0x247130, 0x3B3A24, 0x31C708, 0x31FCA0, 0x31E5A0, 0x3B1FF8, 0x380100, 0x1ED440};
 // the original release (2002-10-13, xbe SHA-1 682ddd1e..., code 919910b4...)
-constexpr GameRelease kOriginal{"original (2002)", 0x227460, 0x387C8C, 0x2FA4C0, 0x2FDA50, 0x386260, 0x3570C0, 0x1D0580};
+constexpr GameRelease kOriginal{"original (2002)", 0x227460, 0x387C8C, 0x2FA4C0, 0x2FDA50, 0x2FC358, 0x386260, 0x3570C0, 0x1D0580};
 
 }  // namespace
 
