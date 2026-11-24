@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 
 #include "app/app.h"
 #include "core/diag.h"
@@ -112,6 +113,21 @@ namespace mechassault {
 uint32_t g_fov_percent = 100;  // settings.toml fov_percent, F1 > Gameplay
 uint32_t g_draw_distance = 100;  // settings.toml draw_distance, F1 > Graphics: percent of the game's own, 100-300
 }
+
+// The HUD's pieces by picture (the log's "hud: learned" lines from missions 1 and 4, Rev 1): the radar, the weapon and
+// heat gauges and their parts. They move to the screen's edges in widescreen from a mission's first frame, under its
+// opening text, instead of once a frame with no text has shown them (2 to 3 s in, or never in a mission whose radar is
+// busy from the start, as 6 and 11 are). A piece not listed still learns the old way. Left out: a tutorial box's
+// frame, learned as it faded out (0, 4E4034D0..., 05485B0E..., 904EF74A..., 08AEEDFD...).
+namespace {
+constexpr uint64_t kKnownHud[] = {
+    0x8A48104B11214DA3, 0x9458F94996EC7833, 0x040CA751F4DD8AB1, 0xB31BF1E1520A57B7, 0x6F625D884DAF1359,
+    0xF64618277BC18FF3, 0x0ACCCF59F34F4C37, 0x720F60E9BF7F8E1D, 0x96B5EC5D7E15AC1E, 0xF557B923D02FB0ED,
+    0x8104B3A6B645E5AD, 0xA366D29E2ABD683D, 0xF2B8B87FF570C3A7, 0x575AFD45694F58C6, 0x47DC7B20E511EEF9,
+    0x910D584ABC33EF70, 0xBAD075703AB8BCB7, 0xF945049416047B55, 0x53CC2C33DB668B3C, 0xCA0C5B5D14C72D2E,
+};
+const bool g_known_hud_set = (gpu::wide::SetKnownHud(kKnownHud, std::size(kKnownHud)), true);
+}  // namespace
 
 // The game culls with a frustum of its own, built right after the projection (0x381B0, the camera in ebx): its side
 // planes from the 4:3 horizontal field of view (+0x88, degrees, half of it in radians at 0x3829F and 0x38348), its top

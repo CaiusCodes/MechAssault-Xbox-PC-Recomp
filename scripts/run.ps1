@@ -34,7 +34,7 @@ while (((Get-Date) - $t0).TotalSeconds -lt $Seconds -and -not $p.HasExited) {
         $r = New-Object W+RECT; [void][W]::GetWindowRect($h, [ref]$r)
         $w = $r.R - $r.L; $hh = $r.B - $r.T
         if ($w -gt 0 -and $hh -gt 0) {
-            $bmp = New-Object System.Drawing.Bitmap $w, $hh; $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $bmp = New-Object System.Drawing.Bitmap $w, $hh, ([System.Drawing.Imaging.PixelFormat]::Format24bppRgb); $g = [System.Drawing.Graphics]::FromImage($bmp)
             $dc = $g.GetHdc(); [void][W]::PrintWindow($h, $dc, 2); $g.ReleaseHdc($dc)
             $bmp.Save((Join-Path $dir ("{0:D3}.png" -f $i)), [System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose(); $i++
         }

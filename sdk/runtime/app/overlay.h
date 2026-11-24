@@ -5,7 +5,7 @@
 namespace app {
 void DrawOverlay();  // each frame inside the ImGui frame, UiLock held, before GameInfo::ui
 void ToggleMenu();   // window thread: F1
-void LoadMenuFont();  // mechassault-recomp patch: once, after ImGui::CreateContext (Segoe UI, MA_MENU_FONT)
+void LoadMenuFont();  // mechassault-recomp patch: once, after ImGui::CreateContext (Bahnschrift, MA_MENU_FONT)
 
 // mechassault-recomp patch: the F1 menu's rows (overlay.cpp), for the runtime's pages and the game's (GameInfo::menu
 // is called on each page; MenuPage tells which). A page is a two-column table: names stretching, controls in a fixed
@@ -19,6 +19,9 @@ void Heading(const char* text);
 void Rows(bool on);
 bool Slider(const char* id, uint32_t& value, int lo, int hi, const char* format);  // its value text right of the track
 bool Toggle(const char* id, bool& value);                                           // a pill switch
+// mechassault-recomp patch: a < name > picker over names (the arrows, left and right step it; A or a click opens
+// the list); index is the chosen name's
+bool Pick(const char* id, int& index, const char* const* names, int count);
 // the game's page: true on that page ("Display", "Graphics", "Game" or "Gameplay", "Controls", "Network"), its rows
 // open; EndMenuPage closes nothing now and is kept for the game's code
 bool MenuPage(const char* name);

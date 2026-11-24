@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 #include <string>
 #include <utility>
 #include <vector>
@@ -242,6 +243,49 @@ void FpsCounter(bool detailed) {
 
 // breakdown-recomp patch: every controller drives the menu (SDL, so PlayStation and Switch pads too; the Win32
 // backend's own XInput reading is compiled out)
+// mechassault-recomp patch: XBE_MENU_KEYS=<seconds>:<button>,... (tests): controller buttons held for a fifth of a
+// second at those times after the menu opens (up down left right a b lb rb), as the held menu buttons
+uint32_t TestMenuButtons() {
+    struct Press {
+        double at;
+        uint32_t bit;
+    };
+    static const std::vector<Press> presses = [] {
+        std::vector<Press> out;
+        const char* spec = std::getenv("XBE_MENU_KEYS");
+        if (!spec) return out;
+        static const std::pair<const char*, uint32_t> kNames[] = {
+            {"up", input::kMenuUp},     {"down", input::kMenuDown}, {"left", input::kMenuLeft}, {"right", input::kMenuRight},
+            {"a", input::kMenuA},       {"b", input::kMenuB},       {"lb", input::kMenuLB},     {"rb", input::kMenuRB}};
+        std::string s = spec;
+        for (size_t i = 0; i < s.size();) {
+            size_t end = s.find(',', i);
+            std::string item = s.substr(i, end == std::string::npos ? std::string::npos : end - i);
+            i = end == std::string::npos ? s.size() : end + 1;
+            size_t colon = item.find(':');
+            if (colon == std::string::npos) continue;
+            for (auto [name, bit] : kNames)
+                if (_stricmp(item.substr(colon + 1).c_str(), name) == 0) out.push_back({std::atof(item.c_str()), bit});
+        }
+        return out;
+    }();
+    static std::chrono::steady_clock::time_point opened{};
+    if (presses.empty() || !g_menu) {
+        opened = {};
+        return 0;
+    }
+    auto now = std::chrono::steady_clock::now();
+    if (opened == std::chrono::steady_clock::time_point{}) opened = now;
+    double t = std::chrono::duration<double>(now - opened).count();
+    uint32_t held = 0;
+    for (const Press& p : presses)
+        if (t >= p.at && t < p.at + 0.2) held |= p.bit;
+    static uint32_t last = 0;
+    if (held & ~last) LOGR("settings menu test: buttons %03X at %.2f s", held & ~last, t);
+    last = held;
+    return held;
+}
+
 void FeedControllers(const input::MenuPad& m) {
     ImGuiIO& io = ImGui::GetIO();
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
@@ -259,11 +303,12 @@ void FeedControllers(const input::MenuPad& m) {
     stick(ImGuiKey_GamepadLStickDown, -m.ly);
 }
 
-// mechassault-recomp patch: the F1 menu in the Breakdown port's look (j, 2026-11-24): a black panel down the left with
-// the icon's red, spaced capitals, hexagon page markers, a red band for the open page and a faint honeycomb behind; the
-// pages listed on the left with Reset and Close under them; each page a two-column table of names and controls; the
-// hovered or selected setting's description in a three-line area under it. Pages: Display, Graphics, Game, Controls
-// (the game's, GameInfo::menu through MenuPage) and Network.
+// mechassault-recomp patch: the F1 menu, design A "Command" (j, 2026-11-24): a panel in the middle of the screen with
+// the game dimmed behind it; the reticle and MECHASSAULT / SETTINGS at the top, the pages as tabs under it (LB and RB),
+// the open one with a glowing red line; each page a two-column table of names and controls (a < value > picker, a red
+// switch, a thin red slider), the pointed-at or chosen row lit by a red-to-purple bar; its description under the table;
+// a foot strip with the buttons' uses, Reset, Check for updates and the version. Pages: Display, Graphics, Game,
+// Controls (the game's, GameInfo::menu through MenuPage) and Network.
 
 // ---- the menu's rows (overlay.h): a page is a table of names and controls; Hint fills the foot area ----
 bool g_rows = false;     // a rows table is open
@@ -272,6 +317,22 @@ float g_row_top = 0;     // the current row's top, screen y
 std::string g_hint;      // the hovered or selected row's description, this frame
 bool g_slider_hovered = false;  // Slider's handle is under the mouse or selected (its value text is the last item)
 int g_tab = 0;           // the page shown, kept while the menu is closed
+ImVec2 g_sel_row, g_sel_row_next;  // the lit row's top and bottom, screen y: last frame's (drawn), this frame's
+int g_focus_first = 0;  // the page's first control takes the focus: 1 (menu opened, page clicked), 2 (LB or RB: lit)
+
+// right after a row's control: the page's first one takes the focus when the menu opens or the page changes, so a
+// controller starts at the top of the page
+void FocusIfFirst() {
+    if (!g_focus_first || !g_rows) return;
+    const bool lit = g_focus_first == 2;
+    g_focus_first = 0;
+    if (ImGui::GetCurrentWindow()->Appearing) {
+        ImGui::SetItemDefaultFocus();
+    } else {
+        ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow());
+        if (lit) ImGui::GetCurrentContext()->NavDisableHighlight = false;
+    }
+}
 
 bool MouseMode() { return !ImGui::GetCurrentContext()->NavDisableMouseHover; }
 
@@ -281,15 +342,15 @@ struct Look {
 const Look& CurrentLook() {
     auto rgb = [](int r, int g, int b, float a = 1.0f) { return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a); };
     // MechAssault's icon and menus: near black, warm greys, the reticle's red
-    static const Look kLook = {rgb(13, 9, 10), rgb(238, 232, 230), rgb(140, 120, 118), rgb(196, 30, 40),
+    static const Look kLook = {rgb(17, 14, 15), rgb(236, 230, 226), rgb(142, 127, 123), rgb(196, 40, 47),
                                rgb(236, 74, 60)};
     return kLook;
 }
 
-// the menu font: Segoe UI from Windows' fonts loaded large and drawn smaller (FontGlobalScale), so it stays sharp up
-// to 4K; ImGui's own font when it is missing. MA_MENU_FONT names another .ttf
+// the menu font: Bahnschrift (else Segoe UI) from Windows' fonts loaded large and drawn smaller (FontGlobalScale), so
+// it stays sharp up to 4K; ImGui's own font when it is missing. MA_MENU_FONT names another .ttf
 constexpr float kFontLoadPx = 34.0f;
-constexpr float kFontPx = 17.0f;  // at 720p, scaled with the display's height up to 3x
+constexpr float kFontPx = 15.0f;  // at 720p, scaled with the display's height up to 3x
 bool g_font_loaded = false;
 
 void Style(float scale) {
@@ -387,45 +448,74 @@ void DrawTracked(ImDrawList* d, ImVec2 at, float size, ImU32 col, const char* te
     }
 }
 
-// a flat-topped hexagon
-void Hexagon(ImDrawList* d, ImVec2 c, float r, ImU32 col, bool filled, float thickness = 1.0f) {
-    ImVec2 pts[6];
-    for (int i = 0; i < 6; i++) {
-        float a = 3.14159265f / 3.0f * float(i);
-        pts[i] = ImVec2(c.x + r * std::cos(a), c.y + r * std::sin(a));
-    }
-    if (filled) d->AddConvexPolyFilled(pts, 6, col);
-    else d->AddPolyline(pts, 6, col, ImDrawFlags_Closed, thickness);
-}
+ImVec4 Rgba(int r, int g, int b, float a) { return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a); }
 
-// the panel's honeycomb, faint, fading out toward its right edge
-void Honeycomb(ImDrawList* d, ImVec2 lo, ImVec2 hi, float r, ImVec4 ink) {
-    const float w = r * 1.5f, h = r * 1.7320508f;
-    d->PushClipRect(lo, hi, true);
-    int col = 0;
-    for (float x = lo.x; x < hi.x + r; x += w, col++) {
-        float fade = 1.0f - std::clamp((x - lo.x) / (hi.x - lo.x), 0.0f, 1.0f);
-        ImU32 c = ImGui::GetColorU32(ImVec4(ink.x, ink.y, ink.z, ink.w * (0.35f + 0.65f * fade)));
-        for (float y = lo.y + (col & 1 ? h * 0.5f : 0.0f); y < hi.y + h; y += h) Hexagon(d, ImVec2(x, y), r * 0.94f, c, false);
-    }
-    d->PopClipRect();
-}
-
-// a combo over (label, value) pairs in the current row; true when the value changed
+// a < value > picker over (label, value) pairs in the current row: its arrows, or left and right on a controller or
+// the keys, step through them; a click in the middle, A or Enter opens the whole list. True when the value changed
 template <typename T>
 bool Choice(const char* id, T& value, const std::vector<std::pair<std::string, T>>& items) {
-    std::string preview = "Custom";
-    for (auto& [name, v] : items)
-        if (v == value) preview = name;
+    const int n = int(items.size());
+    int cur = -1;
+    for (int i = 0; i < n; i++)
+        if (items[size_t(i)].second == value) cur = i;
+    const float em = ImGui::GetFontSize(), h = ImGui::GetFrameHeight();
+    const float w = std::max(ImGui::GetContentRegionAvail().x, 4.0f * h);
+    const ImVec2 a = ImGui::GetCursorScreenPos(), z(a.x + w, a.y + h);
+    const bool pressed = ImGui::InvisibleButton(id, ImVec2(w, h));
+    FocusIfFirst();
+    const ImGuiID iid = ImGui::GetItemID(), popup = ImHashStr("##ChoicePopup", 0, iid);
+    const bool hovered = ImGui::IsItemHovered(), focused = ImGui::IsItemFocused();
+    const bool open = ImGui::IsPopupOpen(popup, ImGuiPopupFlags_None);
+    const float lx = a.x + 0.9f * em, rx = z.x - 0.9f * em;  // the arrows' middles
+    int step = 0;
+    if (pressed) {
+        const float x = ImGui::GetIO().MousePos.x;
+        const bool mouse = MouseMode() && ImGui::IsMouseReleased(ImGuiMouseButton_Left);
+        step = mouse && x < lx + 0.9f * em ? -1 : mouse && x > rx - 0.9f * em ? 1 : 0;
+        if (!step && !open) ImGui::OpenPopupEx(popup);
+    }
+    if (focused && !open) {  // left and right step it, and do not move to another setting
+        for (ImGuiKey k : {ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight, ImGuiKey_LeftArrow, ImGuiKey_RightArrow})
+            ImGui::SetKeyOwner(k, iid);
+        if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft) || ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) step = -1;
+        if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight) || ImGui::IsKeyPressed(ImGuiKey_RightArrow)) step = 1;
+    }
     bool changed = false;
-    if (ImGui::BeginCombo(id, preview.c_str())) {
-        for (auto& [name, v] : items) {
-            bool sel = v == value;
-            if (ImGui::Selectable(name.c_str(), sel) && !sel) {
-                value = v;
+    if (step && n) {
+        int next = cur < 0 ? 0 : std::clamp(cur + step, 0, n - 1);
+        if (next != cur) {
+            cur = next;
+            value = items[size_t(cur)].second;
+            changed = true;
+            if (std::getenv("XBE_MENU_KEYS")) LOGR("settings menu test: stepped to %s", items[size_t(cur)].first.c_str());
+        }
+    }
+    ImDrawList* d = ImGui::GetWindowDrawList();
+    const Look& L = CurrentLook();
+    d->AddRectFilled(a, z, IM_COL32(255, 255, 255, hovered || open ? 26 : 15), 0.2f * em);
+    ImGui::RenderNavHighlight(ImRect(a, z), iid);
+    const ImU32 lit = ImGui::GetColorU32(L.accent), dim = ImGui::GetColorU32(ImVec4(L.accent.x, L.accent.y, L.accent.z, 0.3f));
+    const float cy = a.y + h * 0.5f, s = 0.27f * em, th = std::max(1.5f, 0.11f * em);
+    const ImVec2 left[3] = {{lx + s * 0.5f, cy - s}, {lx - s * 0.5f, cy}, {lx + s * 0.5f, cy + s}};
+    const ImVec2 right[3] = {{rx - s * 0.5f, cy - s}, {rx + s * 0.5f, cy}, {rx - s * 0.5f, cy + s}};
+    d->AddPolyline(left, 3, cur > 0 ? lit : dim, ImDrawFlags_None, th);
+    d->AddPolyline(right, 3, cur + 1 < n ? lit : dim, ImDrawFlags_None, th);
+    const std::string shown = cur >= 0 ? items[size_t(cur)].first : std::string("Custom");
+    const ImVec2 ts = ImGui::CalcTextSize(shown.c_str());
+    d->PushClipRect(ImVec2(lx + s, a.y), ImVec2(rx - s, z.y), true);
+    d->AddText(ImVec2(std::max(a.x + (w - ts.x) * 0.5f, lx + s), cy - ts.y * 0.5f), ImGui::GetColorU32(ImGuiCol_Text),
+               shown.c_str());
+    d->PopClipRect();
+    if (ImGui::BeginComboPopup(popup, ImRect(a, z), ImGuiComboFlags_HeightLarge)) {
+        for (int i = 0; i < n; i++) {
+            bool sel = i == cur;
+            ImGui::PushID(i);
+            if (ImGui::Selectable(items[size_t(i)].first.c_str(), sel) && !sel) {
+                value = items[size_t(i)].second;
                 changed = true;
             }
-            if (sel) ImGui::SetItemDefaultFocus();
+            ImGui::PopID();
+            if (sel && ImGui::IsWindowAppearing()) ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
     }
@@ -485,9 +575,19 @@ void DisplayPage(Settings& s, const Settings& before) {
     }
     static std::vector<Resolution> modes;
     if (ImGui::IsWindowAppearing() || modes.empty() || new_monitor) modes = Resolutions();
-    std::vector<std::pair<std::string, Resolution>> res{{"Desktop", {0, 0}}};
+    // no "Desktop" entry (j, 2026-11-24): the default (0 x 0) shows as the desktop's own size
+    std::vector<std::pair<std::string, Resolution>> res;
     for (auto& m : modes) res.push_back({std::to_string(m.w) + " x " + std::to_string(m.h), m});
     Resolution cur{s.width, s.height};
+    if (!cur.w || !cur.h) {
+        MONITORINFOEXW mi{};
+        mi.cbSize = sizeof(mi);
+        DEVMODEW dm{};
+        dm.dmSize = sizeof(dm);
+        if (GetMonitorInfoW(static_cast<HMONITOR>(ChosenMonitor()), &mi) &&
+            EnumDisplaySettingsW(mi.szDevice, ENUM_REGISTRY_SETTINGS, &dm))
+            cur = {dm.dmPelsWidth, dm.dmPelsHeight};
+    }
     if (RowChoice<Resolution>("Resolution", cur, res,
                               "The size of the window or screen. How sharp the game is drawn is Render resolution, "
                               "under Graphics.")) {
@@ -638,28 +738,6 @@ void Page(Settings& s, const Settings& before, int i) {
     Rows(false);
 }
 
-void HintText(float height) {
-    ImGui::BeginChild("##hint", ImVec2(0, height), ImGuiChildFlags_None,
-                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs);
-    ImGui::PushTextWrapPos(0);
-    if (!g_hint.empty())
-        ImGui::TextUnformatted(g_hint.c_str());
-    else
-        ImGui::TextDisabled("Point at a setting to see what it does. On a controller: A changes, B closes, LB and RB "
-                            "change the page.");
-    ImGui::PopTextWrapPos();
-    ImGui::EndChild();
-}
-
-// a text button without a frame, muted until hovered
-bool QuietButton(const char* label) {
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    bool pressed = ImGui::Button(label);
-    ImGui::PopStyleColor(2);
-    return pressed;
-}
-
 // Check for updates' state, a line under its button (empty when there is nothing to say)
 std::string UpdateLine(const update::Status& st) {
     using update::State;
@@ -682,56 +760,57 @@ std::string UpdateLine(const update::Status& st) {
     return line;
 }
 
-// the foot of the page list, bottom up: Close, Reset (Display and Graphics), Check for updates with its state
-void NavFoot(Settings& s, bool video, float w, float body_h, bool& open) {
-    using update::State;
-    const ImGuiStyle& st = ImGui::GetStyle();
-    const float button = ImGui::GetFrameHeight(), gap = st.ItemSpacing.y;
-    update::Status u = update::Current();
-    std::string line = UpdateLine(u);
-    const bool offer = u.state == State::Available;
-    auto lines = [&](const std::string& t) { return t.empty() ? 0.0f : ImGui::CalcTextSize(t.c_str(), nullptr, false, w).y + gap; };
-    float h = button * (2 + (video ? 1 : 0) + (offer ? 1 : 0)) + gap * (1 + (video ? 1 : 0) + (offer ? 1 : 0)) + lines(line);
-    ImGui::SetCursorPosY(std::max(ImGui::GetCursorPosY(), body_h - h));
-    bool busy = u.state == State::Checking || u.state == State::Installing || u.state == State::Installed;
-    ImGui::BeginDisabled(busy);
-    if (QuietButton("Check for updates")) update::Check();
-    ImGui::EndDisabled();
-    Hint("Looks for a newer version and installs it through the setup. Your saves, settings and game stay as they are.");
-    if (!line.empty()) {
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
-        ImGui::TextDisabled("%s", line.c_str());
-        ImGui::PopTextWrapPos();
-    }
-    if (offer) {
-        if (update::DevelopmentLayout()) {
-            QuietButton("Updates through git");
-            Hint("This is a build folder, not a release: update it with git pull and build.bat.");
-        } else {
-            if (QuietButton(("Update to " + u.latest).c_str())) update::Install();
-            Hint("Downloads the new version, closes the game and opens the setup, which gets it ready for your PC. "
-                 "Your saves, settings and game stay as they are.");
-        }
-    }
-    if (video) {
-        if (QuietButton("Reset")) ResetVideo(s);
-        Hint("Puts every Display and Graphics setting back to its default.");
-    }
-    if (QuietButton("Close  F1")) open = false;
-    Hint("Closes the menu. On a controller: B, or Back and Start together.");
+// the version for the foot, in capitals
+std::string VersionText() {
+    std::string text;
+    for (char ch : update::Version()) text += char(std::toupper(static_cast<unsigned char>(ch)));
+    return text;
 }
 
-// the version, small, spaced and faint, in the panel's bottom left corner below the page list
-void VersionTag(ImDrawList* d, ImVec2 wpos, float panel_w, float x, float H, float em) {
-    const std::string& v = update::Version();
-    if (v.empty()) return;
-    std::string text;
-    for (char ch : v) text += char(std::toupper(static_cast<unsigned char>(ch)));
-    const Look& L = CurrentLook();
-    d->PushClipRect(wpos, ImVec2(wpos.x + panel_w, wpos.y + H), false);
-    DrawTracked(d, ImVec2(x, wpos.y + H - 1.5f * em), 0.62f * em,
-                ImGui::GetColorU32(ImVec4(L.accent.x, L.accent.y, L.accent.z, 0.55f)), text.c_str(), 0.14f * em);
-    d->PopClipRect();
+// a button's use in the foot: its key caps ("<>" draws the left and right arrows), then what it does, centred on y;
+// the width it took
+float KeyHint(ImDrawList* d, float x, float y, float em, std::initializer_list<const char*> keys, const char* what) {
+    ImFont* f = ImGui::GetFont();
+    const float ks = 0.6f * em, kh = 1.15f * em, kp = 0.3f * em, x0 = x;
+    const ImU32 line = IM_COL32(255, 255, 255, 64), text = ImGui::GetColorU32(ImGuiCol_Text),
+                muted = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    for (const char* k : keys) {
+        const bool arrows = std::strcmp(k, "<>") == 0;
+        const float tw = arrows ? 1.3f * em : f->CalcTextSizeA(ks, FLT_MAX, 0, k).x, kw = std::max(tw + 2 * kp, kh);
+        d->AddRect(ImVec2(x, y - kh * 0.5f), ImVec2(x + kw, y + kh * 0.5f), line, 0.18f * em, 0, std::max(1.0f, 0.045f * em));
+        if (arrows) {
+            const float cx = x + kw * 0.5f, s = 0.2f * em;
+            d->AddTriangleFilled(ImVec2(cx - 0.6f * em, y), ImVec2(cx - 0.2f * em, y - s), ImVec2(cx - 0.2f * em, y + s), text);
+            d->AddTriangleFilled(ImVec2(cx + 0.6f * em, y), ImVec2(cx + 0.2f * em, y + s), ImVec2(cx + 0.2f * em, y - s), text);
+        } else {
+            d->AddText(f, ks, ImVec2(x + (kw - tw) * 0.5f, y - ks * 0.56f), text, k);
+        }
+        x += kw + 0.25f * em;
+    }
+    x += 0.2f * em;
+    const float ws = 0.68f * em, wt = 0.04f * em;
+    DrawTracked(d, ImVec2(x, y - ws * 0.56f), ws, muted, what, wt);
+    return x - x0 + TrackedWidth(what, ws, wt) + 1.4f * em;
+}
+
+// a text button in the foot, muted until pointed at or chosen; at.x its left, at.y its middle. True when pressed
+bool FootButton(const char* id, const char* label, ImVec2 at, float size) {
+    const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0, label);
+    const float m = size * 0.45f;
+    ImGui::SetCursorScreenPos(ImVec2(at.x - m, at.y - ts.y * 0.5f - m));
+    const bool pressed = ImGui::InvisibleButton(id, ImVec2(ts.x + 2 * m, ts.y + 2 * m));
+    const bool lit = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+    ImGui::RenderNavHighlight(ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax()), ImGui::GetItemID());
+    ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), size, ImVec2(at.x, at.y - ts.y * 0.5f),
+                                        ImGui::GetColorU32(lit ? ImGuiCol_Text : ImGuiCol_TextDisabled), label);
+    return pressed;
+}
+
+// the reticle beside the title: a ring, its cross reaching past it
+void Reticle(ImDrawList* d, ImVec2 c, float r, float reach, float thick, ImU32 col) {
+    d->AddCircle(c, r, col, 40, thick);
+    d->AddLine(ImVec2(c.x, c.y - r - reach), ImVec2(c.x, c.y + r + reach), col, thick);
+    d->AddLine(ImVec2(c.x - r - reach, c.y), ImVec2(c.x + r + reach, c.y), col, thick);
 }
 
 // XBE_MENU_TAB=<name> (tests, screenshots): the page the menu opens on
@@ -752,17 +831,29 @@ void Menu() {
     const Settings before = s;  // what a display change can go back to
     ImGuiIO& io = ImGui::GetIO();
     const float em = ImGui::GetFontSize();
-    const ImGuiStyle& st = ImGui::GetStyle();
+    const Look& L = CurrentLook();
     const float W = io.DisplaySize.x, H = io.DisplaySize.y;
-    float panel_w = std::min(std::max(46.0f * em, W * 0.4f), W);
-    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(panel_w, H), ImGuiCond_Always);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(3.0f * em, 2.5f * em));
+    // the panel in the middle of the screen, the game dimmed behind it and a soft shadow under it
+    const float pw = std::min(46.0f * em, W - 2.0f * em), ph = std::min(35.0f * em, H - 1.5f * em);
+    const ImVec2 p0(std::floor((W - pw) * 0.5f), std::floor((H - ph) * 0.5f)), p1(p0.x + pw, p0.y + ph);
+    const float r = 0.45f * em, pad = 1.9f * em;
+    {
+        ImDrawList* bg = ImGui::GetBackgroundDrawList();
+        bg->AddRectFilled(ImVec2(0, 0), ImVec2(W, H), IM_COL32(6, 4, 5, 140));
+        for (int i = 1; i <= 8; i++) {
+            float g = float(i) * 0.4f * em;
+            bg->AddRectFilled(ImVec2(p0.x - g, p0.y - g + 1.2f * em), ImVec2(p1.x + g, p1.y + g + 1.2f * em),
+                              IM_COL32(0, 0, 0, 16), r + g);
+        }
+    }
+    ImGui::SetNextWindowPos(p0, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(pw, ph), ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     static int want_tab = -1;
     if (!g_menu_drawn) {
         ImGui::SetNextWindowFocus();  // a controller can move in it at once
         if (TestPage() >= 0) want_tab = TestPage();
+        g_focus_first = 1;
     }
     g_menu_drawn = true;
     static bool popup_before = false;  // B that closed a list this frame must not close the menu too
@@ -771,93 +862,165 @@ void Menu() {
     g_rows_id = 0;
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                              ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
-                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-    {  // the panel fades into the game on its right
-        ImU32 bg = ImGui::GetColorU32(ImGuiCol_WindowBg), clear = ImGui::GetColorU32(ImGuiCol_WindowBg, 0.0f);
-        ImGui::GetBackgroundDrawList()->AddRectFilledMultiColor(ImVec2(panel_w, 0), ImVec2(panel_w + 8 * em, H), bg,
-                                                                 clear, clear, bg);
-    }
+                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+                             ImGuiWindowFlags_NoBackground;
     bool began = ImGui::Begin("Settings##mechassault-recomp", nullptr, flags);
-    ImGui::PopStyleVar(2);
+    ImGui::PopStyleVar();
     if (began) {
-        const bool video = g_tab == kDisplay || g_tab == kGraphics;
+        ImDrawList* d = ImGui::GetWindowDrawList();
+        const ImU32 text = ImGui::GetColorU32(ImGuiCol_Text), muted = ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                    red = ImGui::GetColorU32(L.accent);
+        {  // near black, a little lighter at the top. It stops short of 13, 11, 12: Windows' window captures
+           // (PrintWindow, so the test screenshots) show that exact colour as black
+            const int v0 = d->VtxBuffer.Size;
+            d->AddRectFilled(p0, p1, IM_COL32(18, 15, 16, 245), r);
+            ImGui::ShadeVertsLinearColorGradientKeepAlpha(d, v0, d->VtxBuffer.Size, p0, ImVec2(p0.x, p1.y),
+                                                          IM_COL32(22, 18, 19, 255), IM_COL32(14, 12, 13, 255));
+        }
+        d->AddRect(p0, p1, IM_COL32(255, 255, 255, 15), r);
         // LB and RB change the page
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
             !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
             if (ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false)) want_tab = (g_tab + kPages - 1) % kPages;
             if (ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false)) want_tab = (g_tab + 1) % kPages;
+            if (want_tab >= 0 && want_tab != g_tab) g_focus_first = 2;
         }
-        const float hint_h = ImGui::GetTextLineHeight() * 3 + st.ItemSpacing.y;  // three lines of description
-        const float foot_h = hint_h + st.ItemSpacing.y * 3;
-        const Look& L = CurrentLook();
-        ImDrawList* d = ImGui::GetWindowDrawList();
-        ImVec2 wpos = ImGui::GetWindowPos();
-        Honeycomb(d, wpos, ImVec2(wpos.x + panel_w, wpos.y + H), 1.6f * em, ImVec4(1, 1, 1, 0.035f));
-        // the title: the game's name in spaced capitals, SETTINGS under it, a rule fading right
+        // the title: the reticle, the game's name in spaced capitals, SETTINGS under it; F1 CLOSE at the right
         std::string title;
         for (const wchar_t* c = kGame.short_title; *c; c++) title += *c < 0x80 ? char(std::toupper(int(*c))) : '?';
-        ImVec2 at = ImGui::GetCursorScreenPos();
-        float tsize = 1.7f * em, sub = 0.85f * em;
-        DrawTracked(d, at, tsize, ImGui::GetColorU32(ImGuiCol_Text), title.c_str(), 0.32f * em);
-        DrawTracked(d, ImVec2(at.x + 0.05f * em, at.y + tsize * 1.1f), sub, ImGui::GetColorU32(ImGuiCol_TextDisabled),
-                    "SETTINGS", 0.5f * em);
-        float rule_y = at.y + tsize * 1.1f + sub + 1.0f * em;
-        ImVec4 ink(1, 1, 1, 0.22f), ink0(1, 1, 1, 0);
-        d->AddRectFilledMultiColor(ImVec2(wpos.x, rule_y), ImVec2(wpos.x + panel_w - 2 * em, rule_y + 1.0f),
-                                   ImGui::GetColorU32(ink), ImGui::GetColorU32(ink0), ImGui::GetColorU32(ink0),
-                                   ImGui::GetColorU32(ink));
-        ImGui::SetCursorScreenPos(ImVec2(at.x, rule_y + 1.8f * em));
-        const float nav_w = 11.0f * em;
-        const float body_h = ImGui::GetContentRegionAvail().y;
-        // the pages, each a hexagon and its name; the open one a filled hexagon on a red band
-        ImGui::BeginChild("##nav", ImVec2(nav_w, body_h), ImGuiChildFlags_NavFlattened);
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0, 0, 0, 0));
-        ImDrawList* nd = ImGui::GetWindowDrawList();
-        const float item_h = 2.4f * em, hex_r = 0.55f * em, label = 0.95f * em;
+        const float top = p0.y + 1.3f * em, tsize = 1.3f * em;
+        Reticle(d, ImVec2(p0.x + pad + 0.75f * em, top + 0.85f * em), 0.68f * em, 0.26f * em, std::max(1.5f, 0.09f * em), red);
+        const float tx = p0.x + pad + 2.15f * em;
+        DrawTracked(d, ImVec2(tx, top), tsize, text, title.c_str(), 0.26f * em);
+        DrawTracked(d, ImVec2(tx + std::max(1.0f, 0.035f * em), top), tsize, text, title.c_str(), 0.26f * em);  // heavier
+        DrawTracked(d, ImVec2(tx + 0.03f * em, top + tsize * 1.1f), 0.56f * em, muted, "SETTINGS", 0.22f * em);
+        {
+            const char* close = "F1  CLOSE";
+            const float cs = 0.64f * em, ct = 0.09f * em, cw = TrackedWidth(close, cs, ct), m = 0.4f * em;
+            const ImVec2 at(p1.x - pad - cw, top + 0.6f * em);
+            ImGui::SetCursorScreenPos(ImVec2(at.x - m, at.y - m));
+            if (ImGui::InvisibleButton("##close", ImVec2(cw + 2 * m, cs + 2 * m))) open = false;
+            const bool lit = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+            ImGui::RenderNavHighlight(ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax()), ImGui::GetItemID());
+            DrawTracked(d, at, cs, lit ? text : muted, close, ct);
+            Hint("Closes the menu. On a controller: B, or Back and Start together.");
+        }
+        // the pages as tabs: spaced capitals, the open one white over a glowing red line
+        const float tabs_y = p0.y + 4.3f * em, tab_h = 2.1f * em, ls = 0.7f * em, lt = 0.13f * em;
+        float x = p0.x + pad;
         for (int i = 0; i < kPages; i++) {
             if (want_tab == i && g_tab != i) {
                 g_tab = i;
                 LOGR("settings menu: page %s", kPageNames[i]);
             }
-            ImVec2 p = ImGui::GetCursorScreenPos();
-            char id[16];
-            std::snprintf(id, sizeof(id), "##page%d", i);
-            if (ImGui::Selectable(id, g_tab == i, 0, ImVec2(nav_w, item_h)) && g_tab != i) {
+            const float w = TrackedWidth(kPageNames[i], ls, lt) + 1.9f * em;
+            ImGui::SetCursorScreenPos(ImVec2(x, tabs_y));
+            ImGui::PushID(i);
+            if (ImGui::InvisibleButton("##tab", ImVec2(w, tab_h)) && g_tab != i) {
                 g_tab = i;
+                g_focus_first = 1;
                 LOGR("settings menu: page %s", kPageNames[i]);
             }
-            bool sel = g_tab == i, hov = ImGui::IsItemHovered();
-            float cy = p.y + item_h * 0.5f;
-            if (sel) {  // the band runs in from the panel's edge, as the game's menu highlight does
-                ImU32 band = ImGui::GetColorU32(ImVec4(L.accent.x, L.accent.y, L.accent.z, 0.55f));
-                ImU32 clear = ImGui::GetColorU32(ImVec4(L.accent.x, L.accent.y, L.accent.z, 0));
-                nd->PushClipRect(ImVec2(wpos.x, p.y), ImVec2(p.x + nav_w, p.y + item_h), false);
-                nd->AddRectFilledMultiColor(ImVec2(wpos.x, p.y + 0.25f * em), ImVec2(p.x + nav_w, p.y + item_h - 0.25f * em),
-                                            band, clear, clear, band);
-                nd->PopClipRect();
+            const bool lit = ImGui::IsItemHovered() || ImGui::IsItemFocused();
+            ImGui::RenderNavHighlight(ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax()), ImGui::GetItemID());
+            ImGui::PopID();
+            const bool sel = g_tab == i;
+            DrawTracked(d, ImVec2(x + 0.95f * em, tabs_y + (tab_h - ls) * 0.5f - 0.08f * em), ls, sel || lit ? text : muted,
+                        kPageNames[i], lt);
+            if (sel) {
+                const float lh = std::max(2.0f, 0.13f * em), y = tabs_y + tab_h - lh;
+                for (int g = 4; g >= 1; g--) {
+                    const float e = float(g) * 0.16f * em;
+                    d->AddRectFilled(ImVec2(x - e, y - e), ImVec2(x + w + e, y + lh + e),
+                                     ImGui::GetColorU32(ImVec4(L.accent.x, L.accent.y, L.accent.z, 0.09f)), e);
+                }
+                d->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + lh), red);
             }
-            ImU32 hex = sel ? ImGui::GetColorU32(L.accent) : ImGui::GetColorU32(hov ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-            Hexagon(nd, ImVec2(p.x + hex_r + 0.1f * em, cy), hex_r, hex, sel, std::max(1.0f, 0.08f * em));
-            ImU32 text = ImGui::GetColorU32(sel || hov ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-            DrawTracked(nd, ImVec2(p.x + hex_r * 2 + 0.9f * em, cy - label * 0.55f), label, text, kPageNames[i], 0.28f * em);
+            x += w + 0.25f * em;
         }
-        ImGui::PopStyleColor(3);
-        NavFoot(s, video, nav_w, body_h, open);
-        ImGui::EndChild();
-        VersionTag(d, wpos, panel_w, at.x, H, em);
-        ImGui::SameLine(0, 1.5f * em);
-        // the page's rows, a separator, and the hovered row's description
-        ImGui::BeginChild("##body", ImVec2(0, body_h), ImGuiChildFlags_NavFlattened,
-                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        ImGui::BeginChild("##page", ImVec2(0, -foot_h), ImGuiChildFlags_NavFlattened);
+        const float rule = tabs_y + tab_h;
+        d->AddLine(ImVec2(p0.x, rule), ImVec2(p1.x, rule), IM_COL32(255, 255, 255, 18));
+        // the page's rows; the lit row's bar (last frame's place) under them
+        const float foot_h = 2.5f * em, hint_h = 4.1f * em, inset = 0.8f * em;
+        const float body_top = rule + 0.6f * em, body_bottom = p1.y - foot_h - hint_h;
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + pad - inset, body_top));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(inset, 0));
+        ImGui::BeginChild("##page", ImVec2(pw - 2 * (pad - inset), body_bottom - body_top),
+                          ImGuiChildFlags_NavFlattened | ImGuiChildFlags_AlwaysUseWindowPadding);
+        ImGui::PopStyleVar();
+        if (g_sel_row.y > g_sel_row.x) {
+            ImDrawList* cd = ImGui::GetWindowDrawList();
+            const ImVec2 wp = ImGui::GetWindowPos();
+            const float right = wp.x + ImGui::GetWindowWidth() -
+                                (ImGui::GetCurrentWindow()->ScrollbarY ? ImGui::GetStyle().ScrollbarSize : 0.0f);
+            const float mid = wp.x + (right - wp.x) * 0.7f;  // red into purple, then fading out
+            const ImU32 red = IM_COL32(196, 40, 47, 107), purple = IM_COL32(150, 40, 110, 46), clear = IM_COL32(150, 40, 110, 0);
+            cd->AddRectFilledMultiColor(ImVec2(wp.x, g_sel_row.x), ImVec2(mid, g_sel_row.y), red, purple, purple, red);
+            cd->AddRectFilledMultiColor(ImVec2(mid, g_sel_row.x), ImVec2(right, g_sel_row.y), purple, clear, clear, purple);
+        }
+        g_sel_row_next = ImVec2(0, 0);
         Page(s, before, g_tab);
         ImGui::EndChild();
-        ImGui::Separator();
-        ImGui::Dummy(ImVec2(0, st.ItemSpacing.y * 0.5f));
-        HintText(hint_h);
-        ImGui::EndChild();
+        g_sel_row = g_sel_row_next;
+        g_focus_first = 0;  // a page without rows
+        if (static ImGuiID logged = 0; std::getenv("XBE_MENU_KEYS") && ImGui::GetFocusID() != logged) {  // tests
+            logged = ImGui::GetFocusID();
+            LOGR("settings menu test: focus %08X (%.40s)", logged, g_hint.c_str());
+        }
+        // the foot: a darker strip with the buttons' uses; the version at the right, Check for updates and Reset before it
+        const ImVec2 f0(p0.x, p1.y - foot_h);
+        d->AddRectFilled(f0, p1, IM_COL32(0, 0, 0, 90), r, ImDrawFlags_RoundCornersBottom);
+        const float fy = f0.y + foot_h * 0.5f, fs = 0.68f * em;
+        float fx = p0.x + pad;
+        fx += KeyHint(d, fx, fy, em, {"A"}, "Change");
+        fx += KeyHint(d, fx, fy, em, {"B"}, "Close");
+        fx += KeyHint(d, fx, fy, em, {"LB", "RB"}, "Page");
+        fx += KeyHint(d, fx, fy, em, {"<>"}, "Choose");
+        float bx = p1.x - pad;
+        if (std::string ver = VersionText(); !ver.empty()) {
+            const float vs = 0.6f * em, vt = 0.13f * em;
+            bx -= TrackedWidth(ver.c_str(), vs, vt);
+            DrawTracked(d, ImVec2(bx, fy - vs * 0.56f), vs, ImGui::GetColorU32(ImVec4(L.accent.x, L.accent.y, L.accent.z, 0.7f)),
+                        ver.c_str(), vt);
+            bx -= 1.6f * em;
+        }
+        auto foot_button = [&](const char* id, const std::string& label, const char* hint) {
+            bx -= ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0, label.c_str()).x;
+            bool pressed = FootButton(id, label.c_str(), ImVec2(bx, fy), fs);
+            if (ImGui::IsItemHovered() || ImGui::IsItemFocused()) g_hint = hint;
+            bx -= 1.5f * em;
+            return pressed;
+        };
+        const update::Status u = update::Current();
+        const bool busy = u.state == update::State::Checking || u.state == update::State::Installing ||
+                          u.state == update::State::Installed;
+        if (u.state == update::State::Available && !update::DevelopmentLayout()) {
+            if (foot_button("##update", "Update to " + u.latest,
+                            "Downloads the new version, closes the game and opens the setup, which gets it ready for your "
+                            "PC. Your saves, settings and game stay as they are."))
+                update::Install();
+        } else {
+            std::string state = UpdateLine(u);  // Checking..., Up to date and so on, in the button's place
+            if (foot_button("##update", state.empty() ? std::string("Check for updates") : state,
+                            update::DevelopmentLayout() && u.state == update::State::Available
+                                ? "This is a build folder, not a release: update it with git pull and build.bat."
+                                : "Looks for a newer version and installs it through the setup. Your saves, settings and "
+                                  "game stay as they are.") &&
+                !busy)
+                update::Check();
+        }
+        if ((g_tab == kDisplay || g_tab == kGraphics) &&
+            foot_button("##reset", "Reset", "Puts every Display and Graphics setting back to its default."))
+            ResetVideo(s);
+        // the description: the pointed-at or chosen setting's
+        const float hy = body_bottom + 0.3f * em;
+        d->AddLine(ImVec2(p0.x + pad, hy), ImVec2(p1.x - pad, hy), IM_COL32(255, 255, 255, 18));
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + pad, hy + 0.65f * em));
+        ImGui::PushTextWrapPos(pw - pad);
+        ImGui::PushStyleColor(ImGuiCol_Text, Rgba(181, 169, 165, 1.0f));
+        ImGui::TextUnformatted(g_hint.empty() ? "Point at a setting to see what it does." : g_hint.c_str());
+        ImGui::PopStyleColor();
+        ImGui::PopTextWrapPos();
         want_tab = -1;
 
         // B closes the menu once nothing inside it (an open list, an item being edited) takes it
@@ -893,16 +1056,18 @@ void Rows(bool on) {
     g_rows = ImGui::BeginTable(id, 2, ImGuiTableFlags_None, ImVec2(std::max(w, 1.0f), 0));
     if (g_rows) {
         ImGui::TableSetupColumn("##name", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("##control", ImGuiTableColumnFlags_WidthFixed, 14.0f * ImGui::GetFontSize());
+        ImGui::TableSetupColumn("##control", ImGuiTableColumnFlags_WidthFixed, 13.0f * ImGui::GetFontSize());
     }
 }
 
 bool Toggle(const char* id, bool& value) {
     float h = ImGui::GetFrameHeight() * 0.8f, w = h * 1.8f;
     ImVec2 at = ImGui::GetCursorScreenPos();
+    at.x += std::max(0.0f, (ImGui::GetContentRegionAvail().x - w) * 0.5f);  // in the middle of the control column
     at.y += (ImGui::GetFrameHeight() - h) * 0.5f;
     ImGui::SetCursorScreenPos(at);
     bool pressed = ImGui::InvisibleButton(id, ImVec2(w, h));
+    FocusIfFirst();
     if (pressed) value = !value;
     ImGuiID iid = ImGui::GetItemID();
     ImRect bb(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
@@ -918,19 +1083,51 @@ bool Toggle(const char* id, bool& value) {
     return pressed;
 }
 
+// a thin red track with a white handle, its value right of it; dragged with the mouse, stepped with left and right
 bool Slider(const char* id, uint32_t& value, int lo, int hi, const char* format) {
-    char text[32];
-    std::snprintf(text, sizeof(text), format, int(value));
     const ImGuiStyle& st = ImGui::GetStyle();
-    float text_w = 5.5f * ImGui::GetFontSize();
-    ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - text_w - st.ItemInnerSpacing.x, 1.0f));
-    int v = int(value);
-    bool changed = ImGui::SliderInt(id, &v, lo, hi, "", ImGuiSliderFlags_AlwaysClamp);
-    if (changed) value = uint32_t(v);
+    const float em = ImGui::GetFontSize(), h = ImGui::GetFrameHeight(), text_w = 4.0f * em;
+    const float w = std::max(ImGui::GetContentRegionAvail().x - text_w - st.ItemInnerSpacing.x, 1.0f);
+    const ImVec2 a = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton(id, ImVec2(w, h));
+    FocusIfFirst();
+    const ImGuiID iid = ImGui::GetItemID();
+    int v = std::clamp(int(value), lo, hi);
+    if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left) && hi > lo) {
+        float f = std::clamp((ImGui::GetIO().MousePos.x - a.x) / w, 0.0f, 1.0f);
+        v = lo + int(std::lround(f * float(hi - lo)));
+    }
+    if (ImGui::IsItemFocused()) {  // left and right step it, and do not move to another setting
+        for (ImGuiKey k : {ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight, ImGuiKey_LeftArrow, ImGuiKey_RightArrow})
+            ImGui::SetKeyOwner(k, iid);
+        int dir = (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight) || ImGui::IsKeyPressed(ImGuiKey_RightArrow) ? 1 : 0) -
+                  (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft) || ImGui::IsKeyPressed(ImGuiKey_LeftArrow) ? 1 : 0);
+        if (dir) {  // a round step, about a thirtieth of the range
+            float raw = float(hi - lo) / 30.0f;
+            int step = raw < 1.5f ? 1 : raw < 3.5f ? 2 : raw < 7.5f ? 5 : raw < 15.0f ? 10 : 20;
+            v = std::clamp(lo + int(std::lround(float(v + dir * step - lo) / float(step))) * step, lo, hi);
+            if (std::getenv("XBE_MENU_KEYS")) LOGR("settings menu test: slider to %d", v);
+        }
+    }
+    const bool changed = uint32_t(v) != value;
+    value = uint32_t(v);
     g_slider_hovered = ImGui::IsItemHovered();
+    ImDrawList* d = ImGui::GetWindowDrawList();
+    const Look& L = CurrentLook();
+    const float cy = a.y + h * 0.5f, t = std::max(1.5f, 0.13f * em), f = hi > lo ? float(v - lo) / float(hi - lo) : 0.0f;
+    d->AddRectFilled(ImVec2(a.x, cy - t), ImVec2(a.x + w, cy + t), IM_COL32(255, 255, 255, 31), t);
+    if (f > 0) d->AddRectFilled(ImVec2(a.x, cy - t), ImVec2(a.x + w * f, cy + t), ImGui::GetColorU32(L.accent), t);
+    const float hx = a.x + w * f, hw = std::max(1.0f, 0.09f * em);
+    d->AddRectFilled(ImVec2(hx - hw, cy - 0.4f * em), ImVec2(hx + hw, cy + 0.4f * em), IM_COL32_WHITE, hw);
+    ImGui::RenderNavHighlight(ImRect(a, ImVec2(a.x + w, a.y + h)), iid);
+    char text[32];
+    std::snprintf(text, sizeof(text), format, v);
     ImGui::SameLine(0, st.ItemInnerSpacing.x);
     ImGui::AlignTextToFramePadding();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, text_w - ImGui::CalcTextSize(text).x));
+    ImGui::PushStyleColor(ImGuiCol_Text, Rgba(207, 198, 194, 1.0f));
     ImGui::TextUnformatted(text);
+    ImGui::PopStyleColor();
     return changed;
 }
 
@@ -953,7 +1150,13 @@ void Hint(const char* text) {
         float y = ImGui::GetIO().MousePos.y;
         row = y >= g_row_top && y < ImGui::GetItemRectMax().y + ImGui::GetStyle().ItemSpacing.y;
     }
-    if (row || ImGui::IsItemHovered() || g_slider_hovered) g_hint = text;
+    if (row || ImGui::IsItemHovered() || g_slider_hovered) {
+        g_hint = text;
+        if (g_rows) {  // the row's bar (Menu)
+            float pad = ImGui::GetStyle().CellPadding.y;
+            g_sel_row_next = ImVec2(g_row_top - pad, ImGui::GetItemRectMax().y + pad);
+        }
+    }
     g_slider_hovered = false;
 }
 
@@ -976,6 +1179,11 @@ bool MenuPage(const char* name) {
     return on;
 }
 void EndMenuPage() {}
+bool Pick(const char* id, int& index, const char* const* names, int count) {
+    std::vector<std::pair<std::string, int>> items;
+    for (int i = 0; i < count; i++) items.push_back({names[i], i});
+    return Choice<int>(id, index, items);
+}
 
 bool MenuOpen() { return g_menu.load(std::memory_order_relaxed); }
 void ToggleMenu() {
@@ -1004,7 +1212,10 @@ void LoadMenuFont() {
     std::string path;
     char dir[MAX_PATH];
     UINT n = GetWindowsDirectoryA(dir, MAX_PATH);
-    if (n && n < MAX_PATH) path = std::string(dir) + "\\Fonts\\segoeui.ttf";
+    if (n && n < MAX_PATH) {
+        path = std::string(dir) + "\\Fonts\\bahnschrift.ttf";  // as design A was drawn
+        if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES) path = std::string(dir) + "\\Fonts\\segoeui.ttf";
+    }
     if (const char* f = std::getenv("MA_MENU_FONT")) path = f;  // another font
     if (path.empty() || GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES) return;
     ImFontConfig cfg;
@@ -1023,6 +1234,7 @@ void DrawOverlay() {
     static uint32_t logged_buttons = 0;
     if (g_menu && pad.buttons != logged_buttons) LOGR("settings menu: controller buttons %03X", pad.buttons);
     logged_buttons = g_menu ? pad.buttons : 0;
+    pad.buttons |= TestMenuButtons();
     FeedControllers(pad);
     // readable from 720p to 4K: the font at kFontPx on a 720-line display, the menu's sizes with it
     float scale = std::clamp(io.DisplaySize.y / 720.0f, 1.0f, 3.0f);

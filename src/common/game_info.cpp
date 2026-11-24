@@ -50,7 +50,7 @@ void GameMenu() {
         if (kLanguages[i].second == app::Get().language) lang = i;
     const char* names[] = {kLanguages[0].first, kLanguages[1].first, kLanguages[2].first};
     app::Row("Language");
-    if (ImGui::Combo("##language", &lang, names, 3)) {
+    if (app::Pick("##language", lang, names, 3)) {
         app::Get().language = kLanguages[lang].second;
         app::Save();
     }

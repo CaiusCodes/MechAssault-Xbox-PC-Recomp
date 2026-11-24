@@ -783,6 +783,10 @@ private:
                          GuestExtent size, DrawConstants& c);
     void FillTextureConstants(const State& s, const DrawShaders& sh, const DrawTextures& stages, DrawConstants& c);
     float HudShift(const State& s, GuestExtent size, float factor);
+    // mechassault-recomp patch: a texture's picture signature (size, format, top level's bytes), cached by header
+    uint64_t HudSignature(uint32_t header);
+    bool HudSignatureKnown(uint32_t header) { return wide::KnownHud(HudSignature(header)); }
+    std::unordered_map<uint32_t, std::pair<uint32_t, uint64_t>> hud_sigs_;  // header: (data, signature)
     void RecordPrompt(GuestExtent size, const DrawConstants& c);
     void FillTexelConstants(int i, const TextureDesc& d, const DrawTextures& stages, DrawConstants& c);
     void CaptureDraw(const State& s, uint32_t prim, uint32_t count, const PsoKey& k, const DrawConstants& c,
@@ -2934,7 +2938,7 @@ float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
     uint32_t uses = last == hud_tex_last_.end() ? 1 : last->second;
     if (uses > 1) hud_text_ = true;
     if (factor == 1.0f || !hud_play_ || !app::Get().hud_edges || !size.w) return 0;
-    bool text = uses > 1 || (hud_text_ && !hud_sticky_.count(tex));
+    bool text = uses > 1 || (hud_text_ && !hud_sticky_.count(tex) && !HudSignatureKnown(tex));
     if (text && hud_rects_last_.empty()) return 0;
     const VertexElement& e = a.elements[0];
     const VertexBuffer& b = a.buffers[e.buffer];
@@ -2952,7 +2956,12 @@ float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
     float out = 0.5f * w * (1.0f / factor - 1.0f);
     float shift = lo > 0.5f && hi <= 0.36f * w ? -out : hi < w - 0.5f && lo >= 0.64f * w ? out : 0.0f;
     bool known = hud_sticky_.count(tex) != 0;
-    if (!text && !known && (hud_text_last_ || !wide::g_hud_learn)) return 0;
+    if (!text && !known && (hud_text_last_ || !wide::g_hud_learn)) {
+        // mechassault-recomp patch: a piece the title knows by its picture moves at once (wide::KnownHud)
+        if (!HudSignatureKnown(tex)) return 0;
+        known = true;
+        hud_sticky_.insert(tex);
+    }
     if (text) {
         // text in the outer part only moves when it sits by a HUD piece moved last frame, on the same side (each
         // glyph is a draw of its own, so a message box's text reaching that far would otherwise come apart)
@@ -2972,6 +2981,19 @@ float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
 }
 
 // mechassault-recomp patch: a flat draw of a provided prompt image into a 4:3 target: its rectangle where it lands on
+uint64_t D3D12Backend::HudSignature(uint32_t header) {
+    TextureDesc d;
+    if (!header || !Describe(header, d) || !d.data) return 0;
+    auto it = hud_sigs_.find(header);
+    if (it != hud_sigs_.end() && it->second.first == d.data) return it->second.second;
+    uint32_t bytes = std::min<uint32_t>(LevelSize(d, 0), 1u << 20);
+    const void* p = kernel::HostPtr(d.data);
+    uint64_t dims[3] = {d.width, d.height, d.format};
+    uint64_t sig = p ? Hash(p, bytes, Hash(dims, sizeof(dims))) : 0;
+    hud_sigs_[header] = {d.data, sig};
+    return sig;
+}
+
 // the picture (after the widescreen squeeze and HudShift), for clicks on it (gpu/prompts.h)
 void D3D12Backend::RecordPrompt(GuestExtent size, const DrawConstants& c) {
     const Assembled& a = asm_;
@@ -4264,7 +4286,12 @@ void D3D12Backend::Present(const Surface& front) {
     }
     prompts_now_.clear();
     if (!hud_play_) hud_sticky_.clear();
-    if (!hud_text_) hud_sticky_.insert(hud_learn_now_.begin(), hud_learn_now_.end());
+    if (!hud_text_)
+        for (uint32_t t : hud_learn_now_)
+            if (hud_sticky_.insert(t).second) {  // mechassault-recomp patch: what the title can list (wide::SetKnownHud)
+                static std::unordered_set<uint64_t> logged;
+                if (uint64_t sig = HudSignature(t); logged.insert(sig).second) LOGR("hud: learned %016llX", (unsigned long long)sig);
+            }
     hud_learn_now_.clear();
     hud_text_last_ = hud_text_;
     hud_3d_now_ = hud_moved_ = 0;

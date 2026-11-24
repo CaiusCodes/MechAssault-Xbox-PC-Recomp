@@ -8,6 +8,7 @@
 // reflections, effect buffers).
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include <atomic>
@@ -22,6 +23,12 @@ inline std::atomic<bool> g_hud_learn{true};
 // this much, and the fog with it (start and end times it, exponential density over it), so the scene keeps its look
 // with more of the world in it. 1 for none
 inline std::atomic<float> g_fog_scale{1.0f};
+
+// mechassault-recomp patch: HUD pieces the title knows by their picture (a hash of the texture's size, format and top
+// level's bytes, as the log's "hud: learned" lines print it): they move to the edges from the first frame of play,
+// without waiting for a frame with no text to learn them (a mission opens with its objective on screen)
+void SetKnownHud(const uint64_t* sigs, size_t count);
+bool KnownHud(uint64_t sig);
 
 // once a frame, from the renderer's thread: app::WideView()
 void SetView(float view);
