@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "audio/audio.h"
+#include "kernel/kernel.h"  // mechassault-recomp patch: LogGuestStack (XBE_SNDLOG)
 #include "xbe/xbe.h"
 #include "xdk/hle.h"
 #include "xdk/dsp_image.h"
@@ -135,6 +136,7 @@ struct Voice {
     bool stream = false;
     uint64_t log_in = 0, log_done = 0;  // XBE_SNDLOG: frames submitted and played since the stream started
     int64_t log_t0 = 0;
+    bool log_starved = false;
     int refs = 1;
     // format
     uint16_t tag = 1, channels = 1, bits = 16, align = 2;
@@ -521,6 +523,8 @@ struct Cursor {
     uint32_t next_f;
 };
 
+int64_t NowMs();
+
 // the stream's frame at its position, none once its packets ran out
 std::optional<Cursor> StreamFrame(Voice& v) {
     uint32_t f = uint32_t(v.pos);
@@ -535,9 +539,15 @@ std::optional<Cursor> StreamFrame(Voice& v) {
     }
     if (v.packets.empty()) {
         v.pos = 0;
+        if (SndLog() && v.active && !v.ending && !v.log_starved) {
+            v.log_starved = true;
+            LOGR("snd: stream %08X ran out of packets (played %.2f s of %.2f in %.2f s)", v.obj,
+                 double(v.log_done) / v.rate, double(v.log_in) / v.rate, (NowMs() - v.log_t0) / 1000.0);
+        }
         if (v.ending) Deactivate(v);
         return std::nullopt;
     }
+    v.log_starved = false;
     Packet& pk = v.packets.front();
     Cursor at = {pk.data, f, pk.data, f};
     if (f + 1 < FramesOf(v, pk.size)) {
@@ -952,13 +962,13 @@ HLE_STDCALL(DirectSoundCreateBuffer, 2) { return NewBuffer(a[0], a[1]); }
 HLE_STDCALL(IDirectSound_CreateSoundBuffer, 4) { return NewBuffer(a[1], a[2]); }
 
 #define BUFFER(name, nargs)                                 \
-    static uint32_t buf_##name(Voice& v, const Args& a);    \
+    static uint32_t buf_##name(Voice& v, const Args& a, X86Context& ctx); \
     HLE_STDCALL(IDirectSoundBuffer_##name, nargs) {         \
         std::lock_guard<std::recursive_mutex> lock(g_lock); \
         Voice* v = Find(a[0]);                              \
-        return v ? buf_##name(*v, a) : 0x80004005u;         \
+        return v ? buf_##name(*v, a, ctx) : 0x80004005u;    \
     }                                                       \
-    static uint32_t buf_##name([[maybe_unused]] Voice& v, [[maybe_unused]] const Args& a)
+    static uint32_t buf_##name([[maybe_unused]] Voice& v, [[maybe_unused]] const Args& a, [[maybe_unused]] X86Context& ctx)
 
 BUFFER(Release, 1) {
     if (--v.refs > 0) return uint32_t(v.refs);
@@ -995,7 +1005,10 @@ BUFFER(Play, 4) {
     return 0;
 }
 BUFFER(Stop, 1) {
-    if (SndLog() && v.playing) LOGR("snd: buffer %08X stop at frame %lld of %u", v.obj, (long long)v.pos, FramesOf(v, v.play_len));
+    if (SndLog() && v.playing) {
+        LOGR("snd: buffer %08X stop at frame %lld of %u", v.obj, (long long)v.pos, FramesOf(v, v.play_len));
+        if (v.rate == 22050 && v.pos > 0.5 * v.rate) kernel::LogGuestStack(ctx, 64);  // speech-rate, stopped late on
+    }
     v.playing = false;
     return 0;
 }
@@ -1144,20 +1157,20 @@ HLE_STDCALL(DirectSoundCreateStream, 2) {
 }
 
 #define STREAM(name, nargs)                                     \
-    static uint32_t str_##name(Voice& v, const Args& a);        \
+    static uint32_t str_##name(Voice& v, const Args& a, X86Context& ctx); \
     HLE_STDCALL(CDirectSoundStream_##name, nargs) {             \
         uint32_t r;                                             \
         std::vector<Done> flushed;                              \
         {                                                       \
             std::lock_guard<std::recursive_mutex> lock(g_lock); \
             Voice* v = Find(a[0]);                              \
-            r = v ? str_##name(*v, a) : 0x80004005u;            \
+            r = v ? str_##name(*v, a, ctx) : 0x80004005u;       \
             flushed.swap(t_flushed);                            \
         }                                                       \
         Run(ctx, flushed);                                      \
         return r;                                               \
     }                                                           \
-    static uint32_t str_##name([[maybe_unused]] Voice& v, [[maybe_unused]] const Args& a)
+    static uint32_t str_##name([[maybe_unused]] Voice& v, [[maybe_unused]] const Args& a, [[maybe_unused]] X86Context& ctx)
 
 // the stream's callbacks still queued and those of its flushed packets, in order, go to the calling thread
 static void FlushStream(Voice& v) {
@@ -1222,7 +1235,10 @@ STREAM(Process, 3) {
     return 0;
 }
 STREAM(Discontinuity, 1) {
-    if (SndLog()) LOGR("snd: stream %08X discontinuity, %zu packets queued", v.obj, v.packets.size());
+    if (SndLog()) {
+        LOGR("snd: stream %08X discontinuity, %zu packets queued", v.obj, v.packets.size());
+        kernel::LogGuestStack(ctx, 48);
+    }
     if (!v.packets.empty()) v.ending = true;
     else if (v.active) FlushStream(v);
     return 0;
@@ -1243,12 +1259,14 @@ STREAM(FlushEx, 4) {
         LOGR("snd: stream %08X flushex time %08X%08X flags %X, %zu packets dropped: %.2f s, peak %.3f; played %.2f s of %.2f "
              "in %.2f s", v.obj, a[2], a[1], a[3], v.packets.size(), v.rate ? double(frames) / v.rate : 0.0, peak,
              double(v.log_done + uint64_t(v.pos)) / v.rate, double(v.log_in) / v.rate, (NowMs() - v.log_t0) / 1000.0);
+        kernel::LogGuestStack(ctx, 48);
     }
     if (a[3] && !v.active) return 0;
     FlushStream(v);
     return 0;
 }
 STREAM(Pause, 2) {
+    if (SndLog()) LOGR("snd: stream %08X pause %u (active %d)", v.obj, a[1], int(v.active));
     v.paused = a[1] == 1;
     v.sync = a[1] == 2;
     return 0;
