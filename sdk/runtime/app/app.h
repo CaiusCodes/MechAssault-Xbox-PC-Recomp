@@ -233,8 +233,17 @@ struct GameInfo {
     // install (app/update.h), null for none
     const char* version = "";
     const char* update_repo = nullptr;
+    // mechassault-recomp patch: what an F8 bug mark records about the game (bug_mark.cpp): lines of text
+    std::vector<std::string> (*bug_state)() = nullptr;
 };
 extern const GameInfo kGame;
+
+// mechassault-recomp patch: F8 bug marks (bug_mark.cpp): the mark (window thread), the picture of the next frame
+// (render thread: true with the file when one is due, then SaveBugPicture with its BGRA rows), the note it was saved
+void MarkBug();
+bool BugShotDue(std::filesystem::path& file);
+void SaveBugPicture(std::filesystem::path file, std::vector<uint8_t> bgra, uint32_t w, uint32_t h);
+void DrawBugToast();
 
 // sleeps out the rest of the frame for the fps cap
 void Pace();

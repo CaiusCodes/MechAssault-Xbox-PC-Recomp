@@ -23,6 +23,8 @@ extern bool g_mouse_invert_y;
 extern uint32_t g_fov_percent;  // src/game/widescreen.cpp
 extern bool g_unlock_campaign;  // src/game/campaign.cpp
 void UpdatePrompts();          // src/game/prompts.cpp
+void RecordPad(const input::Pad& pad);  // src/common/bug_state.cpp
+std::vector<std::string> BugState();
 }
 
 namespace {
@@ -58,6 +60,7 @@ void Pad(int port, input::Pad& pad) {
     mechassault::ScriptPad(port, pad);
     mechassault::KeyboardPad(port, pad);
     mechassault::MouseAimPad(port, pad);
+    if (port == 0) mechassault::RecordPad(pad);  // for F8 bug marks
 }
 
 }  // namespace
@@ -99,4 +102,5 @@ const app::GameInfo app::kGame = {
     .platform_line = L"Original Xbox · Title ID 4D530017",
     .version = MECHASSAULT_DESCRIBE,
     .update_repo = "CaiusCodes/MechAssault-Xbox-PC-Recomp",  // its releases carry MechAssault.zip (app/update.h)
+    .bug_state = mechassault::BugState,  // F8 (src/common/bug_state.cpp)
 };

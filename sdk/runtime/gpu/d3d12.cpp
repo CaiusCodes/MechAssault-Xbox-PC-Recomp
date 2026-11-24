@@ -4139,6 +4139,14 @@ void D3D12Backend::DrawFrame(Target* t, uint32_t bi) {
             frame = sharp;
             frame_fmt = kBgra;
         }
+        // mechassault-recomp patch: an F8 bug mark's picture, the game's frame at its render size (app/bug_mark.cpp)
+        if (std::filesystem::path shot; !t->depth && app::BugShotDue(shot)) {
+            uint32_t w = t->w ? t->w : t->gw, h = t->h ? t->h : t->gh;
+            ComPtr<ID3D12Resource> down = Shrink(t->res.Get(), t->state, t->fmt, w, h, {.mul = t->range});
+            std::vector<uint8_t> px;
+            if (down && ReadBack(down.Get(), w, h, px)) app::SaveBugPicture(std::move(shot), std::move(px), w, h);
+            Transition(t->res.Get(), t->state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        }
     }
     D3D12_RESOURCE_STATES bs = D3D12_RESOURCE_STATE_PRESENT;
     Transition(bb_[bi].Get(), bs, D3D12_RESOURCE_STATE_RENDER_TARGET);

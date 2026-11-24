@@ -258,6 +258,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_KEYDOWN:
             if (wp == VK_F3) DumpThreads();
+            if (wp == VK_F8 && !(lp & 0x40000000)) MarkBug();  // mechassault-recomp patch: a play tester marks a bug
             if (wp == VK_F1 && !(lp & 0x40000000)) ToggleMenu();  // breakdown-recomp patch: settings menu, not on repeats
             // breakdown-recomp patch: F2 steps the performance overlay: off, FPS counter, counter and diagnostics
             if (wp == VK_F2 && !(lp & 0x40000000)) {

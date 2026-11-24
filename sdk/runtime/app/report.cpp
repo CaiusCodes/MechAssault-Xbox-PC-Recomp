@@ -117,6 +117,15 @@ int ReportCommand() {
     for (const fs::path& f : Newest(Paths().logs, L".log"))
         if (fs::copy_file(f, stage / "logs" / f.filename(), fs::copy_options::overwrite_existing, ec)) logs++;
     if (logs) entries.push_back(L"logs");
+    // F8 bug marks (bug_mark.cpp): each a .txt and a .png
+    size_t marks = 0;
+    for (const auto& e : fs::directory_iterator(Paths().logs / "bugs", ec)) {
+        if (!marks) fs::create_directories(stage / "bugs", ec);
+        if (e.is_regular_file(ec) && fs::copy_file(e.path(), stage / "bugs" / e.path().filename(),
+                                                   fs::copy_options::overwrite_existing, ec))
+            marks++;
+    }
+    if (marks) entries.push_back(L"bugs");
     std::vector<fs::path> dmp = Newest(Paths().logs / "CrashDumps", L".dmp");
     if (!dmp.empty()) {
         fs::create_directories(stage / "CrashDumps", ec);

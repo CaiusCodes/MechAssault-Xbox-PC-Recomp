@@ -1037,6 +1037,7 @@ void DrawOverlay() {
     if (g_menu) Menu();
     else g_menu_drawn = false;
     RevertPrompt();  // also with the menu closed
+    DrawBugToast();  // an F8 mark was saved
 }
 
 }  // namespace app
