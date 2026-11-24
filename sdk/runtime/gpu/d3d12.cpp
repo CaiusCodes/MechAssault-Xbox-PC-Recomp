@@ -2683,9 +2683,10 @@ void FillFogConstants(const State& s, bool vertex_program, DrawConstants& c) {
         c.fog[3] = kFogTableLinear;
         return;
     }
-    c.fog[0] = Bits(s.rs[kRsFogStart]);
-    c.fog[1] = Bits(s.rs[kRsFogEnd]);
-    c.fog[2] = Bits(s.rs[kRsFogDensity]);
+    float scale = wide::g_fog_scale.load(std::memory_order_relaxed);  // mechassault-recomp patch: draw distance
+    c.fog[0] = Bits(s.rs[kRsFogStart]) * scale;
+    c.fog[1] = Bits(s.rs[kRsFogEnd]) * scale;
+    c.fog[2] = Bits(s.rs[kRsFogDensity]) / scale;
     c.fog[3] = float(s.rs[kRsFogTableMode]);
 }
 

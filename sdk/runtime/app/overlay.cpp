@@ -572,6 +572,7 @@ void GraphicsPage(Settings& s) {
     if (RowChoice<uint32_t>("FPS counter", s.perf_overlay, {{"Off", 0}, {"On", 1}, {"Detailed", 2}},
                             "Top left corner. F2 steps it. Detailed adds frame times, a graph, CPU and memory."))
         Changed();
+    if (kGame.menu) kGame.menu();  // the game's rows on this page (MenuPage("Graphics"): draw distance)
 }
 
 // System Link's network (app/network.cpp, xdk/xnet.cpp)

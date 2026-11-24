@@ -21,6 +21,7 @@ extern uint32_t g_mouse_sensitivity;
 const gameimport::Profile& Profile();  // src/common/profile.cpp
 extern bool g_mouse_invert_y;
 extern uint32_t g_fov_percent;  // src/game/widescreen.cpp
+extern uint32_t g_draw_distance;
 extern bool g_unlock_campaign;  // src/game/campaign.cpp
 void UpdatePrompts();          // src/game/prompts.cpp
 void RecordPad(const input::Pad& pad);  // src/common/bug_state.cpp
@@ -32,6 +33,12 @@ namespace {
 // the F1 menu's game tabs: Controls, then Gameplay (field of view, language, the campaign unlock)
 void GameMenu() {
     mechassault::MouseMenu();
+    if (app::MenuPage("Graphics")) {
+        app::Row("Draw distance");
+        if (app::Slider("##draw", mechassault::g_draw_distance, 100, 300, "%d%%")) app::Save();
+        app::Hint("How far the world is drawn, and the fog with it: 100% is the original. Farther costs a little "
+                  "speed.");
+    }
     if (!app::MenuPage("Game")) return;
     app::Row("Field of view");
     if (app::Slider("##fov", mechassault::g_fov_percent, 80, 130, "%d%%")) app::Save();
@@ -79,6 +86,7 @@ const app::GameInfo app::kGame = {
                 {"mouse_sensitivity", nullptr, &mechassault::g_mouse_sensitivity},  // percent, 100 = 0.05 degrees a count
                 {"mouse_invert_y", &mechassault::g_mouse_invert_y, nullptr},
                 {"fov_percent", nullptr, &mechassault::g_fov_percent},  // field of view, 80-130
+                {"draw_distance", nullptr, &mechassault::g_draw_distance},  // percent of the game's, 100-300
                 {"unlock_campaign", &mechassault::g_unlock_campaign, nullptr}},
     .load = mechassault::LoadBindings,  // [bindings]: keys and mouse buttons (src/common/keyboard_pad.cpp)
     .save = mechassault::SaveBindings,

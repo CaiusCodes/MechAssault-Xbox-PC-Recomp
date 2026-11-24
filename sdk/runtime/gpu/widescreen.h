@@ -18,6 +18,11 @@ namespace gpu::wide {
 // texture for a HUD piece; a paused game's popup (its frame's edges, its prompts) keeps the 4:3 layout
 inline std::atomic<bool> g_hud_learn{true};
 
+// mechassault-recomp patch: the title's draw distance setting (src/game/widescreen.cpp): its far plane is moved out by
+// this much, and the fog with it (start and end times it, exponential density over it), so the scene keeps its look
+// with more of the world in it. 1 for none
+inline std::atomic<float> g_fog_scale{1.0f};
+
 // once a frame, from the renderer's thread: app::WideView()
 void SetView(float view);
 float View();

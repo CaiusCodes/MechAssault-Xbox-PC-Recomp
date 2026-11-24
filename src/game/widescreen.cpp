@@ -20,10 +20,12 @@
 #include "core/diag.h"
 #include "core/log.h"
 #include "cpu/x86_context.h"
+#include "gpu/widescreen.h"
 #include "kernel/kernel.h"
 
 namespace mechassault {
 extern uint32_t g_fov_percent;
+extern uint32_t g_draw_distance;
 }
 void MechAssaultSelfTest(X86Context& ctx, uint8_t* base);  // selftest.cpp
 
@@ -34,6 +36,31 @@ float g_cull_x = 1, g_cull_y = 1, g_cull_fov = 0;
 constexpr uint32_t kFov = 0x88;  // the camera's horizontal field of view at 4:3, degrees
 constexpr float kHalfDegree = 0.00872664626f;  // pi / 360: degrees to a half angle in radians
 }  // namespace
+
+// Draw distance (issue #2): a perspective camera's far plane (+0x84) is moved out by the setting, as the projection
+// is built, and the fog with it (gpu::wide::g_fog_scale), so the world looks the same up close and goes on further.
+// The camera keeps the far it was given, so this frame's matrix gets the new depth terms (D3DX's left-handed
+// perspective: zf / (zf - zn) and -zn zf / (zf - zn)), and the frustum built right after reads the new far from +0x84,
+// which is put back for the game when that build ends (MechAssaultWidenCullDone).
+constexpr uint32_t kNear = 0x80, kFar = 0x84;
+uint32_t g_far_cam = 0;
+float g_far_game = 0;
+
+template <typename At, typename Get>
+void DrawDistance(uint32_t cam, At at, Get get) {
+    float d = std::clamp(float(mechassault::g_draw_distance), 100.0f, 300.0f) / 100.0f;
+    gpu::wide::g_fog_scale.store(d, std::memory_order_relaxed);
+    g_far_cam = 0;
+    if (d == 1.0f || !cam) return;
+    float zn = std::bit_cast<float>(kernel::R32(cam + kNear)), zf = std::bit_cast<float>(kernel::R32(cam + kFar));
+    if (!(zf > zn) || zn <= 0) return;
+    float far = zf * d;
+    kernel::W32(at(10), std::bit_cast<uint32_t>(far / (far - zn)));
+    kernel::W32(at(14), std::bit_cast<uint32_t>(-zn * far / (far - zn)));
+    g_far_cam = cam;
+    g_far_game = zf;
+    kernel::W32(cam + kFar, std::bit_cast<uint32_t>(far));  // for the frustum built next
+}
 
 void MechAssaultWidenProjection(X86Context& ctx, uint8_t* base) {
     MechAssaultSelfTest(ctx, base);
@@ -53,12 +80,13 @@ void MechAssaultWidenProjection(X86Context& ctx, uint8_t* base) {
     float k = app::WideView();
     // field of view setting (percent of the game's own, both axes): every 4:3 perspective camera, cutscenes too
     float f = std::clamp(float(mechassault::g_fov_percent), 80.0f, 130.0f) / 100.0f;
-    if (k == 1.0f && f == 1.0f) return;
     uint32_t m = ctx.esp + 0x40;  // row major 4x4
     auto at = [&](int i) { return m + uint32_t(i) * 4; };
     auto get = [&](int i) { return std::bit_cast<float>(kernel::R32(at(i))); };
     float xs = get(0), ys = get(5);
     if (get(11) == 0.0f || xs == 0.0f) return;  // orthographic
+    DrawDistance(ctx.ebx, at, get);
+    if (k == 1.0f && f == 1.0f) return;
     auto shape = [&](float a) { return std::fabs(ys / xs - a) <= a * 0.01f; };
     if (!shape(4.0f / 3.0f) && !shape(2.0f / 3.0f) && !shape(8.0f / 3.0f)) return;
     // a wider field of view scales tan(fov / 2), so the clip scales divide by f
@@ -82,6 +110,7 @@ void MechAssaultWidenProjection(X86Context& ctx, uint8_t* base) {
 
 namespace mechassault {
 uint32_t g_fov_percent = 100;  // settings.toml fov_percent, F1 > Gameplay
+uint32_t g_draw_distance = 100;  // settings.toml draw_distance, F1 > Graphics: percent of the game's own, 100-300
 }
 
 // The game culls with a frustum of its own, built right after the projection (0x381B0, the camera in ebx): its side
@@ -106,6 +135,8 @@ void MechAssaultWidenCullTops(X86Context& ctx, uint8_t*) {
 }
 
 void MechAssaultWidenCullDone(X86Context& ctx, uint8_t*) {
+    if (g_far_cam && ctx.ebx == g_far_cam) kernel::W32(ctx.ebx + kFar, std::bit_cast<uint32_t>(g_far_game));  // the game's far
+    g_far_cam = 0;
     if (g_cull_cam && ctx.ebx == g_cull_cam && g_cull_fov != 0)
         kernel::W32(ctx.ebx + kFov, std::bit_cast<uint32_t>(g_cull_fov));
     g_cull_fov = 0;
