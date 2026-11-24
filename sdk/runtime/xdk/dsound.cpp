@@ -4,7 +4,9 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <map>
 #include <optional>
@@ -14,6 +16,7 @@
 #include "kernel/kernel.h"  // mechassault-recomp patch: LogGuestStack (XBE_SNDLOG)
 #include "xbe/xbe.h"
 #include "xdk/hle.h"
+#include "xdk/dsound.h"
 #include "xdk/dsp_image.h"
 #include "xdk/layout.h"
 
@@ -101,6 +104,7 @@ constexpr uint32_t kPacketPending = 0x8000000A, kFlushed = 0x80004004;  // E_PEN
 struct Packet {
     uint32_t data, size, completed_ptr, status_ptr, context;
     uint32_t used = 0;
+    bool tail = false;  // mechassault-recomp patch: the host's copy of a line let finish (dsound::LetFinish), freed once played
 };
 
 // DSMIXBIN numbers the host mixes by name
@@ -184,6 +188,7 @@ float g_listener[3] = {}, g_front[3] = {0, 0, 1}, g_top[3] = {0, 1, 0};
 // overlap the title's own stream code. A stream flushed or released runs its own at once, before it is gone.
 std::deque<Done> g_done;
 std::condition_variable_any g_done_cv;
+bool g_let_finish = false;  // mechassault-recomp patch: dsound::LetFinish
 thread_local std::vector<Done> t_flushed;  // run by the STREAM call that flushed them, once g_lock is let go
 std::atomic<int64_t> g_pumped{0};          // the last DirectSoundDoWork, steady ms
 bool g_started = false;
@@ -276,6 +281,10 @@ float Sample(Voice& v, uint32_t data, uint32_t f, int c) {
 }
 
 void Complete(Voice& v, Packet& pk, uint32_t status) {
+    if (pk.tail) {  // the host's own: nobody waits for it
+        mem::FreeContiguous(pk.data);
+        return;
+    }
     if (pk.completed_ptr) W32(pk.completed_ptr, status == 0 ? pk.size : pk.used);
     if (pk.status_ptr) W32(pk.status_ptr, status);
     if (v.callback) {
@@ -750,6 +759,11 @@ float F32(uint32_t v) {
 
 }  // namespace
 
+void dsound::LetFinish(bool on) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    g_let_finish = on;
+}
+
 // device
 
 // DSOUND objects are the host's; .XTLID names linked exports that would still run console code on them
@@ -1172,11 +1186,82 @@ HLE_STDCALL(DirectSoundCreateStream, 2) {
     }                                                           \
     static uint32_t str_##name([[maybe_unused]] Voice& v, [[maybe_unused]] const Args& a, [[maybe_unused]] X86Context& ctx)
 
-// the stream's callbacks still queued and those of its flushed packets, in order, go to the calling thread
-static void FlushStream(Voice& v) {
+// mechassault-recomp patch: what a flushed stream is still saying (dsound::LetFinish): from its position up to its next
+// pause (160 ms under -26 dBFS: MechAssault's radio tracks have their hiss at -30 to -40 between lines and their
+// speech at -5 to -20), at most what is queued (about 4.4 s), as whole ADPCM blocks copied into memory of the host's
+// own (the title reuses its packets once they complete). None when the stop falls in a pause: quiet for the 80 ms
+// after it (the next line may start right after), or for 160 ms counting what is left of the packet before it.
+static std::optional<Packet> RestOfLine(Voice& v) {
+    if (v.tag != 0x69 || v.packets.empty() || !v.rate || v.paused) return std::nullopt;
+    const uint32_t win = std::max<uint32_t>(v.rate / 50, 1), quiet_windows = 8, max_frames = v.rate * 5;
+    const double quiet = 0.05 * 0.05 * win;  // a 20 ms window's sum of squares at -26 dBFS
+    // a pause the stop falls in counts from where it began: the quiet just before the position, in the front packet
+    uint32_t quiet_run = 0;
+    for (uint32_t back = 1; back <= quiet_windows && uint32_t(v.pos) >= back * win; back++) {
+        double s = 0;
+        for (uint32_t k = uint32_t(v.pos) - back * win; k < uint32_t(v.pos) - (back - 1) * win; k++) {
+            float x = Sample(v, v.packets[0].data, k, 0);
+            s += double(x) * x;
+        }
+        if (s >= quiet) break;
+        quiet_run++;
+    }
+    uint32_t done = 0, in_win = 0, end = 0, f = uint32_t(v.pos), windows = 0;
+    double sum = 0;
+    char levels[160] = "";  // XBE_SNDLOG: the first windows' levels, dBFS
+    for (size_t i = 0; i < v.packets.size() && !end && done < max_frames;) {
+        if (f >= FramesOf(v, v.packets[i].size)) {
+            i++;
+            f = 0;
+            continue;
+        }
+        float x = Sample(v, v.packets[i].data, f++, 0);
+        sum += double(x) * x;
+        done++;
+        if (++in_win < win) continue;
+        if (windows++ < 12 && SndLog())
+            std::snprintf(levels + std::strlen(levels), sizeof(levels) - std::strlen(levels), " %.0f",
+                          10 * std::log10(sum / win + 1e-12));
+        quiet_run = sum < quiet ? quiet_run + 1 : 0;
+        if (windows == 4 && quiet_run >= 4) quiet_run = quiet_windows;  // in a pause from the stop on
+        if (quiet_run >= quiet_windows) end = done > quiet_windows * win ? done - quiet_windows * win : 0;
+        if (quiet_run >= quiet_windows) break;
+        sum = 0;
+        in_win = 0;
+    }
+    if (quiet_run < quiet_windows) end = done;
+    ForgetBlocks(v);
+    if (SndLog())
+        LOGR("snd: stream %08X flushed at frame %u of %zu packets; levels from there:%s", v.obj, uint32_t(v.pos),
+             v.packets.size(), levels);
+    if (end < v.rate / 10) return std::nullopt;  // under a tenth of a second left: the line had ended
+    const uint32_t block = 36u * v.channels, skip = uint32_t(v.pos) % 64;
+    const uint32_t blocks = (skip + end + 63) / 64, bytes = blocks * block;
+    uint32_t copy = mem::AllocContiguous(bytes, 0, 0xFFFFFFFF, 4);
+    if (!copy) return std::nullopt;
+    uint32_t b = uint32_t(v.pos) / 64, written = 0;
+    for (size_t i = 0; i < v.packets.size() && written < bytes; i++, b = 0)
+        for (; b < v.packets[i].size / block && written < bytes; b++, written += block)
+            std::memcpy(HostPtr(copy + written), HostPtr(v.packets[i].data + b * block), block);
+    Packet pk{copy, written, 0, 0, 0};
+    pk.tail = true;
+    if (SndLog())
+        LOGR("snd: stream %08X lets its line finish: %.2f s more", v.obj, double(end) / v.rate);
+    return pk;
+}
+
+// the stream's callbacks still queued and those of its flushed packets, in order, go to the calling thread; a line let
+// finish (dsound::LetFinish) stays queued, alone, the stream going quiet after it
+static void FlushStream(Voice& v, bool let_finish = false) {
+    std::optional<Packet> rest = let_finish && g_let_finish && v.active ? RestOfLine(v) : std::nullopt;
+    double skip = rest ? std::fmod(v.pos, 64.0) : 0.0;
     for (auto& pk : v.packets) Complete(v, pk, kFlushed);
     v.packets.clear();
     v.pos = 0;
+    if (rest) {
+        v.packets.push_back(*rest);
+        v.pos = skip;
+    }
     for (auto it = g_done.begin(); it != g_done.end();) {
         if (it->voice != v.obj) {
             ++it;
@@ -1185,7 +1270,8 @@ static void FlushStream(Voice& v) {
         t_flushed.push_back(*it);
         it = g_done.erase(it);
     }
-    Deactivate(v);
+    if (rest) v.ending = true;
+    else Deactivate(v);
 }
 
 STREAM(AddRef, 1) { return uint32_t(++v.refs); }
@@ -1245,7 +1331,7 @@ STREAM(Discontinuity, 1) {
 }
 STREAM(Flush, 1) {
     if (SndLog() && v.active) LOGR("snd: stream %08X flush, %zu packets dropped", v.obj, v.packets.size());
-    FlushStream(v);
+    FlushStream(v, true);
     return 0;
 }
 STREAM(FlushEx, 4) {
@@ -1262,7 +1348,7 @@ STREAM(FlushEx, 4) {
         kernel::LogGuestStack(ctx, 48);
     }
     if (a[3] && !v.active) return 0;
-    FlushStream(v);
+    FlushStream(v, true);
     return 0;
 }
 STREAM(Pause, 2) {

@@ -104,3 +104,13 @@ call = "MechAssaultWidenCullDone"
 [[hook]]
 at = 0x8D6D3  # 2002: 0x8B0A3
 call = "MechAssaultUnlockCampaign"
+
+# Let voice lines finish (F1 > Game): a radio line whose time is up keeps what it is saying up to its next pause, as
+# the sound emitter update deletes its entry and so flushes the voice stream (src/game/voice.cpp)
+[[hook]]
+at = 0x19CFFD  # 2002: 0x18396D
+call = "MechAssaultVoiceEndBegin"
+
+[[hook]]
+at = 0x19D031  # 2002: 0x1839A1
+call = "MechAssaultVoiceEndDone"

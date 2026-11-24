@@ -23,6 +23,7 @@ extern bool g_mouse_invert_y;
 extern uint32_t g_fov_percent;  // src/game/widescreen.cpp
 extern uint32_t g_draw_distance;
 extern bool g_unlock_campaign;  // src/game/campaign.cpp
+extern bool g_voice_finish;     // src/game/voice.cpp
 void UpdatePrompts();          // src/game/prompts.cpp
 void RecordPad(const input::Pad& pad);  // src/common/bug_state.cpp
 std::vector<std::string> BugState();
@@ -55,6 +56,11 @@ void GameMenu() {
         app::Save();
     }
     app::Hint("Text and speech, from the next time the game starts.");
+    app::Row("Let voice lines finish");
+    if (app::Toggle("##voices", mechassault::g_voice_finish)) app::Save();
+    app::Hint("Radio lines play on to their next pause. The game stops each line after a time set for the English "
+              "recording, which cuts off longer lines, most of all in German. The next line waits, so lines never "
+              "overlap.");
     app::Row("Unlock whole campaign");
     if (app::Toggle("##unlock", mechassault::g_unlock_campaign)) app::Save();
     app::Hint("Every mission and movie in the campaign's Select Mission, from the next visit to it. It is saved in your "
@@ -87,7 +93,8 @@ const app::GameInfo app::kGame = {
                 {"mouse_invert_y", &mechassault::g_mouse_invert_y, nullptr},
                 {"fov_percent", nullptr, &mechassault::g_fov_percent},  // field of view, 80-130
                 {"draw_distance", nullptr, &mechassault::g_draw_distance},  // percent of the game's, 100-300
-                {"unlock_campaign", &mechassault::g_unlock_campaign, nullptr}},
+                {"unlock_campaign", &mechassault::g_unlock_campaign, nullptr},
+                {"voice_finish", &mechassault::g_voice_finish, nullptr}},  // let voice lines finish (on)
     .load = mechassault::LoadBindings,  // [bindings]: keys and mouse buttons (src/common/keyboard_pad.cpp)
     .save = mechassault::SaveBindings,
     .init = nullptr,

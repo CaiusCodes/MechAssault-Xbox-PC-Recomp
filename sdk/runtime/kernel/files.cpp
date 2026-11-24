@@ -518,10 +518,18 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
         n = len;
     }
     f->pos = pos + n;
-    // mechassault-recomp patch: XBE_IOLOG=1 logs every transfer (first 2000): file, offset, size, done, completion
-    static const bool io_log = std::getenv("XBE_IOLOG") != nullptr;
+    // mechassault-recomp patch: XBE_IOLOG=1 logs every transfer (first 2000): file, offset, size, done, completion;
+    // XBE_IOLOG=<text> only the files whose name has it (any case)
+    static const char* io_log = std::getenv("XBE_IOLOG");
     static std::atomic<int> io_logged{0};
-    if (io_log && io_logged++ < 2000)
+    auto io_match = [&] {
+        if (std::strcmp(io_log, "1") == 0) return true;
+        std::string name = f->xbox, want = io_log;
+        for (auto* s : {&name, &want})
+            for (char& c : *s) c = char(std::tolower(static_cast<unsigned char>(c)));
+        return name.find(want) != std::string::npos;
+    };
+    if (io_log && io_match() && io_logged++ < 2000)
         LOGR("io: %s %s at %llX len %X done %X buf %08X event %X apc %08X", write ? "write" : "read",
              f->xbox.c_str(), (unsigned long long)pos, len, n, buf, event, apc);
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full
