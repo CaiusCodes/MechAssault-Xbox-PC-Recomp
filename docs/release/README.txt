@@ -1,4 +1,4 @@
-MechAssault - native PC version 0.6.2 (unofficial, work in progress)
+MechAssault - native PC version 0.6.3 (unofficial, work in progress)
 ==================================================================
 
 This is a native Windows version of MechAssault (original Xbox, 2002), made by static recompilation.
@@ -32,8 +32,8 @@ everything itself, so game speed is unchanged.
 Render scale 1x is the Xbox's own 640x480; 2x, 3x and 4x draw at 2, 3 or 4 times that, and Auto (the default) draws
 as many pixels as the picture gets on your screen (at most 2x on integrated graphics). When the picture is shown
 larger than it is rendered, FSR 1 upscales it (or plain bilinear, your choice). Anti-aliasing (FXAA or SMAA),
-anisotropic filtering, sharpening, texture sharpness, upscaling and FSR sharpening are in F1 > Rendering; brightness
-in F1 > Display; field of view in F1 > Gameplay. Every setting applies at once, without a restart.
+anisotropic filtering, sharpening, texture sharpness, upscaling, FSR sharpening and draw distance are in F1 > Graphics;
+brightness in F1 > Display; field of view and language in F1 > Game. Every setting applies at once, without a restart.
 Widescreen (16:9, 21:9 and wider): the game shows more at the sides, nothing stretched or missing; the radar and weapon gauges
 move out to the screen's edges, menus and movies stay 4:3 in the middle. F1 > Display > Aspect ratio can switch back
 to the Xbox's 4:3 picture.
@@ -53,6 +53,7 @@ Keys
 ----
 F1      settings (also: hold Back and press Start on a controller)
 F2      FPS counter
+F8      mark a bug: saves a picture and a note of the game's state in resources\logs\bugs
 Controller: any XInput/SDL controller, as on the Xbox.
 Keyboard and mouse (defaults, all rebindable in F1 > Controls):
   WASD move, mouse turns the 'Mech and aims (or IJKL), left click fire, right click, Q or the mouse wheel cycle weapons,
