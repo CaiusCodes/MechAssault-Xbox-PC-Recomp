@@ -1,4 +1,4 @@
-// Let voice lines finish (F1 > Game, on by default). MechAssault's radio lines are long tracks in
+// Voice lines finish (always on, j 2026-11-26: German testers found it sounds right). MechAssault's radio lines are long tracks in
 // Audio\SFX_<language>.d1Bank (275 of them, most the same length in every language: the dubs were laid on the English
 // timeline), streamed in 1.49 s packets on one voice stream. The sound emitter update (Rev 1 0x19CF30, 2002 0x1838A0)
 // ends a line after a whole number of packets, timed for the English recording, and deleting the emitter's entry
@@ -14,11 +14,5 @@
 #include "cpu/x86_context.h"
 #include "xdk/dsound.h"
 
-namespace mechassault {
-bool g_voice_finish = true;  // settings.toml voice_finish
-}
-
-void MechAssaultVoiceEndBegin(X86Context&, uint8_t*) {
-    if (mechassault::g_voice_finish) dsound::LetFinish(true);
-}
+void MechAssaultVoiceEndBegin(X86Context&, uint8_t*) { dsound::LetFinish(true); }
 void MechAssaultVoiceEndDone(X86Context&, uint8_t*) { dsound::LetFinish(false); }
