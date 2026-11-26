@@ -642,7 +642,7 @@ void Choose(const fs::path& source) {
     g->chosen = source;
     g->source = Source::Checking;
     g->step = Step::Checking;
-    LOGR("Setup: checking %s", source.string().c_str());
+    LOGR("Setup: checking %s", gameimport::Utf8(source).c_str());
     HWND hwnd = g->hwnd;
     g->worker = std::thread([hwnd, source] {
         g->check = gameimport::Inspect(source, *g->profile);
@@ -655,7 +655,7 @@ void OnInspected() {
     Join();
     g->step = Step::Idle;
     const gameimport::Check& c = g->check;
-    LOGR("Setup: %s, %s, title %08X '%s', sha1 %s, code %s, %u files, %llu bytes: %s", g->chosen.string().c_str(),
+    LOGR("Setup: %s, %s, title %08X '%s', sha1 %s, code %s, %u files, %llu bytes: %s", gameimport::Utf8(g->chosen).c_str(),
          gameimport::KindName(c.kind), c.title_id, c.title_name.c_str(), c.xbe_sha1.c_str(), c.xbe_code_sha1.c_str(), c.files,
          (unsigned long long)c.bytes, c.ok ? "ok" : c.problem.c_str());
     g->source = c.ok ? Source::Ok : Source::Bad;
@@ -688,7 +688,7 @@ bool MakeShortcut() {
     bool ok = SUCCEEDED(sl->QueryInterface(IID_PPV_ARGS(&pf))) && SUCCEEDED(pf->Save(link.c_str(), TRUE));
     if (pf) pf->Release();
     sl->Release();
-    LOGR("Setup: desktop shortcut %s: %s", link.string().c_str(), ok ? "made" : "failed");
+    LOGR("Setup: desktop shortcut %s: %s", gameimport::Utf8(link).c_str(), ok ? "made" : "failed");
     return ok;
 }
 
@@ -701,7 +701,7 @@ void ApplyExtras() {
     if (!kGame.languages.empty()) s.language = kGame.languages[g->language].xc;
     Save();
     SetSavesDir(g->saves);  // mechassault-recomp patch
-    LOGR("Setup: saves in %s", SavesDir().string().c_str());
+    LOGR("Setup: saves in %s", gameimport::Utf8(SavesDir()).c_str());
     if (g->shortcut && !g->shortcut_made) g->shortcut_made = MakeShortcut();
     LOGR("Setup: extras: %s, shortcut %d, delete compiler %d", g->fullscreen ? "fullscreen" : "windowed",
          int(g->shortcut_made), int(g->delete_compiler));
@@ -898,7 +898,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case kImported:
             Join();
             if (wp) {
-                LOGR("Setup: imported into %s", Paths().game.string().c_str());
+                LOGR("Setup: imported into %s", gameimport::Utf8(Paths().game).c_str());
                 g->imported = true;
                 StartBuild();
             } else {

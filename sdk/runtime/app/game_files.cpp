@@ -85,7 +85,7 @@ bool FindGame(GameFiles& game) {
         // mechassault-recomp patch: a header patched by a dump or region tool, the code the same (game_import.cpp)
         std::string code = gameimport::XbeCodeSha1(xbe);
         bool same_code = !match && kGame.profile && gameimport::ReleaseMatch(xbe, *kGame.profile);
-        LOGR("Game: %s in %s, sha1 %s, code %s%s", IMAGE_XBE, name.string().c_str(), sha.c_str(), code.c_str(),
+        LOGR("Game: %s in %s, sha1 %s, code %s%s", IMAGE_XBE, gameimport::Utf8(name).c_str(), sha.c_str(), code.c_str(),
              match ? "" : same_code ? " (a known patched copy of this release)" : ", another release");
         match |= same_code;
         if (match) {
@@ -107,11 +107,11 @@ bool FindGame(GameFiles& game) {
         auto disc = std::make_unique<kernel::Disc>();
         std::string error;
         if (!disc->Open(iso, error)) {
-            LOGW("game: %s: %s", iso.string().c_str(), error.c_str());
+            LOGW("game: %s: %s", gameimport::Utf8(iso).c_str(), error.c_str());
             continue;
         }
         if (!disc->Load(IMAGE_XBE, xbe)) {
-            LOGW("game: %s has no %s", iso.string().c_str(), IMAGE_XBE);
+            LOGW("game: %s has no %s", gameimport::Utf8(iso).c_str(), IMAGE_XBE);
             continue;
         }
         if (consider(iso, std::move(xbe), std::move(disc))) return true;

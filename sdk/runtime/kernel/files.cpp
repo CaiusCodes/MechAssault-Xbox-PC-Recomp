@@ -11,6 +11,13 @@
 #include "kernel/kernel.h"
 #include "kernel/exports.h"
 
+
+// mechassault-recomp patch: a file's name as UTF-8: filename().string() throws for a name the ANSI code page cannot hold
+static std::string NameText(const std::filesystem::path& p) {
+    std::u8string s = p.filename().u8string();
+    return std::string(s.begin(), s.end());
+}
+
 namespace fs = std::filesystem;
 
 namespace kernel {
@@ -56,7 +63,7 @@ fs::path MatchCase(const fs::path& dir, const std::vector<std::string>& parts) {
         bool found = false;
         std::string want = Upper(part);
         for (auto& e : fs::directory_iterator(cur, ec)) {
-            if (Upper(e.path().filename().string()) == want) {
+            if (Upper(NameText(e.path())) == want) {
                 cur = e.path();
                 found = true;
                 break;
@@ -708,7 +715,7 @@ KERNEL_EXPORT(207, NtQueryDirectoryFile, 10) {
         } else {
             std::error_code ec;
             for (auto& e : fs::directory_iterator(f->host, ec))
-                if (WildMatch(pat, e.path().filename().string())) f->entries.push_back(e);
+                if (WildMatch(pat, NameText(e.path()))) f->entries.push_back(e);
             std::sort(f->entries.begin(), f->entries.end());
         }
         f->next = 0;
@@ -719,7 +726,7 @@ KERNEL_EXPORT(207, NtQueryDirectoryFile, 10) {
         return f->next == 0 ? kNoSuchFile : kNoMoreFiles;
     }
     size_t i = f->next++;
-    std::string fname = f->entry ? f->disc_entries[i]->name : f->entries[i].path().filename().string();
+    std::string fname = f->entry ? f->disc_entries[i]->name : NameText(f->entries[i].path());
     uint32_t need = 0x40 + uint32_t(fname.size());
     if (len < need) return kBufferTooSmall;
     std::memset(HostPtr(out), 0, need);

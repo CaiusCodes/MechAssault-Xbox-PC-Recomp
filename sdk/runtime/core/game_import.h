@@ -11,6 +11,13 @@
 
 namespace gameimport {
 
+// mechassault-recomp patch: a path as UTF-8 text, for logs and messages. path::string() converts to the system's ANSI
+// code page and throws for a name it cannot hold (Chinese characters on a Western Windows: GitHub issue #4)
+inline std::string Utf8(const std::filesystem::path& p) {
+    std::u8string s = p.u8string();
+    return std::string(s.begin(), s.end());
+}
+
 // what a title's game layer says its game looks like (GameInfo::profile)
 struct Profile {
     std::string name;                       // "Breakdown"

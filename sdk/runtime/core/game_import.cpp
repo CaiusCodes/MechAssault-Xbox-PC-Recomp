@@ -30,7 +30,7 @@ std::string Lower(std::string s) {
 }
 
 bool IsImageName(const fs::path& p) {
-    std::string ext = Lower(p.extension().string());
+    std::string ext = Lower(Utf8(p.extension()));
     return ext == ".iso" || ext == ".xiso";
 }
 
@@ -56,9 +56,10 @@ fs::path FindCaseless(const fs::path& root, const std::string& rel) {
             continue;
         }
         bool found = false;
-        for (auto& d : fs::directory_iterator(at, ec)) {
-            if (Lower(d.path().filename().string()) == Lower(part)) {
-                at = d.path();
+        // mechassault-recomp patch: names compared as UTF-8, the iterator stepped without throwing (issue #4)
+        for (fs::directory_iterator d(at, ec), end; !ec && d != end; d.increment(ec)) {
+            if (Lower(Utf8(d->path().filename())) == Lower(part)) {
+                at = d->path();
                 found = true;
                 break;
             }
@@ -95,7 +96,7 @@ struct FolderSource : Source {
         for (auto it = fs::recursive_directory_iterator(root, ec); !ec && it != fs::recursive_directory_iterator();
              it.increment(ec)) {
             if (!it->is_regular_file(ec)) continue;
-            std::string rel = fs::relative(it->path(), root, ec).generic_string();
+            std::string rel = Utf8(fs::relative(it->path(), root, ec).generic_u8string());
             if (rel == kManifest) continue;
             f(rel, it->file_size(ec));
         }
@@ -167,10 +168,10 @@ Kind ImageKind(const fs::path& p) {
 fs::path LoneImage(const fs::path& dir) {
     fs::path found;
     std::error_code ec;
-    for (auto& e : fs::directory_iterator(dir, ec)) {
-        if (e.is_regular_file(ec) && IsImageName(e.path())) {
+    for (fs::directory_iterator e(dir, ec), end; !ec && e != end; e.increment(ec)) {
+        if (e->is_regular_file(ec) && IsImageName(e->path())) {
             if (!found.empty()) return {};
-            found = e.path();
+            found = e->path();
         }
     }
     return found;
@@ -394,7 +395,7 @@ bool Import(const fs::path& source, const fs::path& dest, const Profile& profile
     fs::remove_all(tmp, ec);  // a previous interrupted import's leftovers, never the player's files
     fs::create_directories(tmp, ec);
     if (ec) {
-        error = "Cannot create " + tmp.string() + ": " + ec.message();
+        error = "Cannot create " + Utf8(tmp) + ": " + ec.message();
         return false;
     }
     auto space = fs::space(tmp.parent_path(), ec);
@@ -440,7 +441,7 @@ bool Import(const fs::path& source, const fs::path& dest, const Profile& profile
         char when[32];
         std::strftime(when, sizeof(when), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now));
         m << "# written by the setup screen once the game files were copied and checked\n";
-        m << "source = \"" << source.filename().generic_string() << "\"\n";
+        m << "source = \"" << Utf8(source.filename()) <<"\"\n";
         m << "kind = \"" << KindName(kind) << "\"\n";
         m << "xbe_sha1 = \"" << c.xbe_sha1 << "\"\n";
         char id[16];
@@ -470,9 +471,15 @@ std::vector<fs::path> Candidates(const fs::path& dir, const Profile& profile) {
     std::vector<fs::path> found;
     std::error_code ec;
     auto look = [&](const fs::path& d, int depth, auto& self) -> void {
-        for (auto& e : fs::directory_iterator(d, fs::directory_options::skip_permission_denied, ec)) {
-            if (e.is_regular_file(ec) && IsImageName(e.path())) found.push_back(e.path());
-            else if (e.is_directory(ec) && e.path().filename() != "resources") {
+        // mechassault-recomp patch: the folders beside the game are anyone's: a name the code page cannot hold, or a
+        // folder that cannot be read, is skipped rather than thrown (GitHub issue #4)
+        std::error_code ec;
+        for (fs::directory_iterator it(d, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end;
+             it.increment(ec)) {
+            const fs::directory_entry& e = *it;
+            std::error_code ec2;
+            if (e.is_regular_file(ec2) && IsImageName(e.path())) found.push_back(e.path());
+            else if (e.is_directory(ec2) && e.path().filename() != "resources") {
                 if (!FindCaseless(e.path(), kXbe).empty()) found.push_back(e.path());
                 else if (depth > 0) self(e.path(), depth - 1, self);
             }
