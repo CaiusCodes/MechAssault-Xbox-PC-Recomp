@@ -141,7 +141,9 @@ function(add_xbe_image target xbe config partitions game_dir)
     target_compile_definitions(${target} PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)
     target_link_libraries(${target} PRIVATE tomlplusplus::tomlplusplus $<LINK_ONLY:SDL3::SDL3-static> d3d12 dxgi dxguid d3dcompiler xaudio2 ole32 windowscodecs dbghelp winmm dwmapi ws2_32)
     target_link_libraries(${target} PRIVATE ${GEN}/code.lib delayimp)
-    target_link_options(${target} PRIVATE -fuse-ld=lld -g -Wl,/delayload:${target}.dll)
+    # mechassault-recomp patch: the debug directory names the .pdb alone, not the build machine's full path (the
+    # builder's user folder ended up in released executables)
+    target_link_options(${target} PRIVATE -fuse-ld=lld -g -Wl,/delayload:${target}.dll -Wl,/pdbaltpath:%_PDB%)
 
     # without a C runtime: the executable passes on what the code calls
     add_library(${target}_code SHARED ${GEN_SOURCES})

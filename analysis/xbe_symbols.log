@@ -7,7 +7,7 @@ At line:1 char:558
  
   libraries: XAPILIB 1.0.4831 XONLINES 1.0.4831 XBOXKRNL 1.0.4831 LIBCMT 1.0.4831 XVOICE 1.0.4831 D3D8 1.0.4831 D3DX8 
 1.0.4831 XGRAPHC 1.0.4831 DSOUND 1.0.4831 LIBCPMT 1.0.4831
-  using C:\Users\jaybr\OneDrive\Desktop\MechAssault-Xbox-PC-Recomp\sdk\xdk\4831
+  using <repo>\sdk\xdk\4831
   found 138 of 248 functions, 12 of 13 data
   XInputGetCapabilities found by constants (0.60) at 0x2E443F
   convention differs from the reference, prove each argument order by hand and write it in [abi]:

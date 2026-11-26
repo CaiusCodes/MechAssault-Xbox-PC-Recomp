@@ -1,6 +1,6 @@
 # MechAssault PC port: overnight summary (2026-11-02/03)
 
-Repository: `C:\Users\jaybr\OneDrive\Desktop\MechAssault-Xbox-PC-Recomp`, branch `main`, local commits only (pushing
+Repository: `<repo>`, branch `main`, local commits only (pushing
 to github.com/CaiusCodes/mechassault-xbox-pc-recomp was refused by the session's permission rules; run
 `git push -u origin main` there). Breakdown and the other game folders were only read. No game files, XBE or
 generated code are in the repository.
@@ -106,7 +106,7 @@ No blocker to playing. Next, in order:
 ## How to reproduce
 
 ```
-cd C:\Users\jaybr\OneDrive\Desktop\MechAssault-Xbox-PC-Recomp
+cd <repo>
 scripts\b.bat cmake --preset release
 scripts\b.bat cmake --build out\build\release -j 6
 $env:XBE_PAD_SCRIPT = "$PWD\scripts\pad_mission1_play.txt"

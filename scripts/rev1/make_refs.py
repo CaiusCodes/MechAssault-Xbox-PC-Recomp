@@ -1,5 +1,5 @@
 import hashlib, pathlib
-R = pathlib.Path(r"C:\Users\jaybr\OneDrive\Desktop\MechAssault-Xbox-PC-Recomp")
+R = pathlib.Path(__file__).resolve().parents[2]  # the repository
 def blocks(p):
     x = p.read_bytes()
     return "".join(hashlib.sha1(x[i:i + 1024]).hexdigest()[:16] for i in range(0, len(x), 1024)), len(x)
