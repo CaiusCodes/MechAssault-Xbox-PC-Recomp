@@ -2924,8 +2924,8 @@ uint8_t* D3D12Backend::UploadVertexConstants(const State& s) {
 // few, and each frame since has moved HUD pieces, as a paused game's do) and only for flat XYZRHW draws of a texture drawn once a frame, wholly in the outer 36% of a side, before any
 // text: text and framed boxes draw one texture many times (each glyph, each frame piece), and what is drawn after them
 // stays with them (a popup's button icon) unless it is a HUD piece already moved in play (a paused game draws the HUD
-// after its popup). So a message box, subtitles and their icons keep the 4:3 layout, and two-player splitscreen (each
-// texture drawn twice) too.
+// after its popup). So a message box, subtitles and their icons keep the 4:3 layout. Splitscreen draws each HUD texture
+// once per player: the title's known pieces (wide::KnownHud) still move, each to its own side.
 float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
     const Assembled& a = asm_;
     if (!a.pretransformed) {
@@ -2936,9 +2936,13 @@ float D3D12Backend::HudShift(const State& s, GuestExtent size, float factor) {
     hud_tex_now_[tex]++;
     auto last = hud_tex_last_.find(tex);
     uint32_t uses = last == hud_tex_last_.end() ? 1 : last->second;
-    if (uses > 1) hud_text_ = true;
+    // mechassault-recomp patch: a known HUD piece drawn once for each player of a splitscreen game (up to four) is not
+    // text: each draw moves to its side's edge like a lone player's (j 2026-11-26: the outer players' radar and gauges
+    // stayed in the middle at 16:9)
+    const bool many = uses > 1 && !(uses <= 4 && HudSignatureKnown(tex));
+    if (many) hud_text_ = true;
     if (factor == 1.0f || !hud_play_ || !app::Get().hud_edges || !size.w) return 0;
-    bool text = uses > 1 || (hud_text_ && !hud_sticky_.count(tex) && !HudSignatureKnown(tex));
+    bool text = many || (hud_text_ && !hud_sticky_.count(tex) && !HudSignatureKnown(tex));
     if (text && hud_rects_last_.empty()) return 0;
     const VertexElement& e = a.elements[0];
     const VertexBuffer& b = a.buffers[e.buffer];

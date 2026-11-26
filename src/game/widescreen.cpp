@@ -114,8 +114,8 @@ uint32_t g_fov_percent = 100;  // settings.toml fov_percent, F1 > Gameplay
 uint32_t g_draw_distance = 100;  // settings.toml draw_distance, F1 > Graphics: percent of the game's own, 100-300
 }
 
-// The HUD's pieces by picture (the log's "hud: learned" lines from missions 1 and 4, Rev 1): the radar, the weapon and
-// heat gauges and their parts. They move to the screen's edges in widescreen from a mission's first frame, under its
+// The HUD's pieces by picture (the log's "hud: learned" lines from missions 1 and 4, Rev 1; multiplayer's from a
+// splitscreen game): the radar, the weapon and heat gauges and their parts. They move to the screen's edges in widescreen from a mission's first frame, under its
 // opening text, instead of once a frame with no text has shown them (2 to 3 s in, or never in a mission whose radar is
 // busy from the start, as 6 and 11 are). A piece not listed still learns the old way. Left out: a tutorial box's
 // frame, learned as it faded out (0, 4E4034D0..., 05485B0E..., 904EF74A..., 08AEEDFD...).
@@ -125,6 +125,10 @@ constexpr uint64_t kKnownHud[] = {
     0xF64618277BC18FF3, 0x0ACCCF59F34F4C37, 0x720F60E9BF7F8E1D, 0x96B5EC5D7E15AC1E, 0xF557B923D02FB0ED,
     0x8104B3A6B645E5AD, 0xA366D29E2ABD683D, 0xF2B8B87FF570C3A7, 0x575AFD45694F58C6, 0x47DC7B20E511EEF9,
     0x910D584ABC33EF70, 0xBAD075703AB8BCB7, 0xF945049416047B55, 0x53CC2C33DB668B3C, 0xCA0C5B5D14C72D2E,
+    // the multiplayer HUD, drawn once for each player of a splitscreen game (Colosseum, two players; j 2026-11-26)
+    0x30235D780E261C1D, 0xF45780E4F0280353, 0x0B8F1FD92EDA0306, 0x113840A2262F13C2, 0x4CF44F14514682C7,
+    0x3315E778B1900449, 0x9A5D8FB634AE5AE1, 0xDDA32979CB226842, 0xD1DE51B602A8D958, 0x6EB98BE6265C2C64,
+    0xDBECD2B504EA2821, 0x172B8530A90C9B89, 0x055F834E100B9A37, 0x987DCB98A936DF1C,
 };
 const bool g_known_hud_set = (gpu::wide::SetKnownHud(kKnownHud, std::size(kKnownHud)), true);
 }  // namespace
