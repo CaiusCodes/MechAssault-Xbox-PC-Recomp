@@ -1,10 +1,8 @@
 # MechAssault Xbox PC Recomp
 
-A native Windows PC port of **MechAssault** (Day 1 Studios / Microsoft, original Xbox, 2002), built by static
-recompilation with [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp).
+A native Windows PC port of **MechAssault**, Day 1 Studios' 2002 'Mech combat game for the original Xbox.
 
-Play at **up to 4K and 60 or 120 FPS**, in true 16:9 and 21:9 widescreen, with keyboard and mouse look, split-screen
-and System Link multiplayer over LAN or a virtual LAN. No emulator required.
+**Play in widescreen at 60 FPS, with keyboard and mouse controls, split-screen and System Link multiplayer. No emulator required.**
 
 **Free and open-source.**
 
@@ -13,163 +11,157 @@ tip me on [Ko-fi](https://ko-fi.com/caiuscodes).
 
 [![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/caiuscodes)
 
-![MechAssault Main Menu](docs/screenshots/main-menu.jpg)
+![The MechAssault main menu](docs/screenshots/main-menu.jpg)
 
-> **You must provide your own copy of MechAssault.** No original game files or assets are distributed with this
-> project. The setup imports the required files from your disc image or extracted game folder, and builds the game
-> code for your PC from your own copy on the first start.
+> **You must provide your own copy of MechAssault for the original Xbox.** No original game files, code or assets are distributed with this project. The setup imports everything it needs from your own copy the first time you play.
 
 ## Download & Installation
 
 **[Download the latest release](https://github.com/CaiusCodes/MechAssault-Xbox-PC-Recomp/releases)**
 
-1. Download the latest ZIP and extract the **MechAssault** folder anywhere you can write to (not Program Files).
+1. Download the latest ZIP and extract the **MechAssault** folder anywhere you can save files (not Program Files).
 2. Run `MechAssault.exe`.
-3. Select your MechAssault disc image (`.iso`, a full disc dump or an xiso) or extracted game folder using
-   **Disc image...** or **Folder...**, or drop it on the setup window.
-4. Choose your options: fullscreen, desktop shortcut, unlocking the whole campaign, online games, the game's language,
-   and optionally another folder for your saves.
-5. Click **Play**. The first start copies the game and builds its code for your PC (about a minute, once).
+3. Pick your copy of the game with **Disc image...** or **Folder...**, or drop it on the setup window.
+4. Choose your options: fullscreen, a desktop shortcut, unlocking the whole campaign, the game's language and where to keep your saves.
+5. Click **Play**. The first start takes about a minute to prepare the game, and only happens once.
 
-![Setup window](docs/screenshots/setup.png)
+![The setup window](docs/screenshots/setup.png)
 
 After setup, simply run `MechAssault.exe` to play. Your disc image is no longer needed.
 
-**To run setup again:** start `MechAssault.exe --setup`, or delete `resources\game`.
+**To reopen setup:** Start `MechAssault.exe --setup`, or delete the `resources\game` folder.
 
-The installation is portable: the imported game, saves and settings stay inside the MechAssault folder. Saves can be
-kept in another folder instead (another drive or a synced folder): choose it under **Game save location** in setup.
-
-### Supported release
-
-**MechAssault (USA) Rev 1**, the 2003 reissue most copies are (`default.xbe` built 2003-08-08, certificate version 8,
-title ID `4D530017`). Copies patched by a mod pack or dump tool (region-free, HDD-ready, re-signed) are accepted as
-long as the game code is unchanged. The original 2002 disc (MechAssault (USA, Europe)) is not supported by this
-release, and System Link only works between copies of the same release.
-
-Not sure which one you have? When the setup refuses a copy it saves `MechAssault-copy-check.txt` on your Desktop,
-saying which release it is; `MechAssault.exe --check-copy` checks any `default.xbe`, game folder or disc image.
+The installation is portable, with the game, saves and settings kept inside the MechAssault folder, but you can keep your saves in another folder (another drive or a synced folder) by choosing **Game save location** in setup.
 
 ### System Requirements
 
 - Windows 10 or 11 (64-bit)
 - A DirectX 12 graphics card (integrated graphics work)
-- Your own MechAssault disc image or extracted game files (Rev 1)
+- Your own copy of MechAssault for the original Xbox
+
+The setup accepts **MechAssault (USA) Rev 1**, the 2003 reissue most copies are, including copies patched to be region-free or run from a hard drive.
+
+![Crew in the 'Mech hangar](docs/screenshots/hangar.jpg)
 
 ## Features
 
 ### Graphics & Performance
 
-- **Native PC rendering** with DirectX 12
-- **60 FPS** by default, or 120 FPS or your monitor's rate; the game times everything itself, so its speed is unchanged
-- **True widescreen:** 16:9, 21:9 and wider show more at the sides; the radar and weapon gauges move out to the
-  screen's edges, menus and movies stay 4:3
-- **Render scale** 1x (the Xbox's 640x480) to 4x, or Auto
-- **FSR 1** upscaling, **SMAA** or FXAA anti-aliasing, anisotropic filtering, sharpening
-- Adjustable field of view
-- Every setting applies at once from the **F1** menu
+- **60 FPS** by default, twice the original. The game keeps its normal speed. Higher limits (120 and 144 FPS) also work but are less tested.
+- **Widescreen:** 16:9 shows more of the battlefield at the sides, with nothing stretched. The radar and weapon gauges move out to the screen's edges. 21:9 ultrawide also works but is less tested.
+- **Sharper picture:** Render the game at up to 4 times the Xbox's resolution, or let Auto pick for your screen.
+- **Smoother edges:** SMAA or FXAA anti-aliasing, texture filtering, sharpening and AMD FSR upscaling.
+- Adjustable **draw distance**, **field of view** and brightness.
+- Every setting applies instantly from the **F1** menu, with no restart.
 
-![MechAssault Gameplay](docs/screenshots/gameplay.jpg)
+![A 'Mech in the hills under an open sky](docs/screenshots/open-sky.jpg)
 
 ### Controls & Quality of Life
 
-- Full **keyboard and mouse** support: mouse look turns your 'Mech and aims, rebindable keys, adjustable sensitivity
-- **Xbox controllers** and other gamepads
-- PC button prompts in the menus when no controller is connected, clickable with the mouse
-- Optional **unlock of the whole campaign**: every mission and movie from the mission select
-- Built-in update checker
-- Portable installation, with saves where you choose
-- After a crash, a **problem report** (logs and crash reports in a zip on your Desktop) is one click away
+- Full **keyboard and mouse** support: the mouse turns your 'Mech and aims, with rebindable keys and adjustable sensitivity.
+- **Mouse in the menus:** point and click, right click to go back. With no controller plugged in, the on-screen button prompts show your keys instead.
+- **Xbox controllers** and other gamepads work just like on the console.
+- **Settings menu** on **F1** (or hold Back and press Start on a controller), with Display, Graphics, Game, Controls and Network pages.
+- **FPS counter** on **F2**.
+- Play in **English, French or German**, text and speech.
+- Built-in update checker.
+- Portable installation, with saves where you choose.
+
+![A 'Mech in battle](docs/screenshots/gameplay.jpg)
 
 ### Multiplayer
 
-- **Split-screen** for two players on one PC
-- **System Link** on a LAN, and over the internet through a virtual LAN (Radmin VPN, ZeroTier, Hamachi, Tailscale)
-  or a direct address
+- **Split-screen** for two players on one PC.
+- **System Link** over your home network.
+- Online play through a virtual LAN (Radmin VPN, ZeroTier, Hamachi or Tailscale) or the host's internet address also works but is less tested.
 
 #### Playing over LAN or a virtual LAN
 
-1. Every player runs the same version with the same release of the game (Rev 1).
-2. On a virtual LAN, join the same network and pick its adapter in **F1 > Network**.
-3. The host picks **Multiplayer > System Link**, a profile, then creates a game; the others find it in the Games List.
+1. Every player needs the same version of this port and a Rev 1 copy of the game.
+2. On a virtual LAN, join the same network and pick it under **F1 → Network**.
+3. The host picks **Multiplayer → System Link**, chooses a profile and creates a game. Everyone else finds it in the games list.
 
-To join by address instead, enter the host's public address in **F1 > Network > Join address**; the host forwards
-UDP ports 1000-1002. Windows Firewall may ask to allow MechAssault the first time a game is hosted or joined. Xbox
-Live is gone and stays greyed out.
+To join by address instead, enter the host's address under **F1 → Network → Join address**. The host has to forward UDP ports 1000 to 1002. Windows Firewall may ask for permission the first time you host or join.
 
-![MechAssault Split-screen](docs/screenshots/splitscreen.jpg)
+![Two players in split-screen](docs/screenshots/splitscreen.jpg)
+
+### Extras & Cheats
+
+- **Unlock the whole campaign:** Every mission and movie becomes playable from **Select Mission**. Turn it on in setup or under **F1 → Game**.
+
+![The Select Mission screen](docs/screenshots/mission-select.jpg)
 
 ## Keyboard & Mouse Controls
 
 | Key | Action |
 |---|---|
 | W, A, S, D | Move |
-| Mouse | Turn and aim |
-| Left Click | Fire |
+| Mouse (or I, J, K, L) | Turn and aim |
+| Left Click or Enter | Fire |
 | Right Click, Q or Mouse Wheel | Cycle weapons |
-| 1, 2, 3 | Energy, ballistic, missile weapons |
-| Space | Jump jets |
-| Shift or F | Defense |
+| 1, 2, 3 | Energy, ballistic, missile weapon |
+| Space (hold) | Jump jets |
+| Left Shift or F | Defense |
+| Tab | Scoreboard |
+| T | Team chat |
 | Esc | Pause |
+| M | Start menu |
 | Enter / Backspace | Menu select / back |
+| Arrow Keys | D-pad |
 | F1 | Settings |
+| F2 | FPS counter |
+| F8 | Mark a bug |
 
-Keys can be changed under **F1 > Controls**.
+Keys can be customised under **F1 → Controls**.
+
+Controllers use the original console controls, so you can plug one in and play.
 
 ## Updates
 
-Check for new versions through **F1 > Check for updates**. Updates are downloaded and installed without touching your
-imported game, saves or settings. Alternatively, download the latest release ZIP and extract it over your existing
-installation.
+Check for new versions through **F1 → Check for updates**.
+
+Updates are downloaded and installed without affecting your imported game, saves or settings.
+
+Alternatively, download the latest release ZIP and extract it over your existing installation.
 
 ## Known Limitations
 
 - Windows only.
-- Only MechAssault (USA) Rev 1 is accepted; the original 2002 release is not (yet).
+- Only MechAssault (USA) Rev 1 is accepted for now; the original 2002 disc isn't supported yet. If setup refuses your copy, it saves `MechAssault-copy-check.txt` on your Desktop saying which version you have.
+- Rev 1 and the 2002 disc can't play System Link together, so everyone needs Rev 1.
 - Xbox Live and downloadable content are not supported.
-- Windows SmartScreen or antivirus programs may warn about the unsigned executable; see `ANTIVIRUS.txt` in the
-  release folder.
+- Not every campaign mission has been played through on this version yet.
+- Windows SmartScreen or your antivirus may warn about the unsigned executable; see `ANTIVIRUS.txt` in the game folder.
 - Windows Firewall may ask for permission for multiplayer.
+
+![A 'Mech in flames](docs/screenshots/burning-mech.jpg)
 
 ## Reporting Issues
 
-Found a bug? [Open a GitHub Issue](https://github.com/CaiusCodes/MechAssault-Xbox-PC-Recomp/issues) and attach the zip
-the game offers to save on your Desktop after a crash (or `MechAssault.exe --save-report`), or your latest log from:
+If something goes wrong while you play, press **F8** to mark the moment: it saves a picture and a note for the report.
 
-`resources\logs\mechassault.log`
+1. Close the game.
+2. Make a problem report: after a crash, the game offers to save one to your Desktop. Otherwise, start `MechAssault.exe --save-report`.
+3. [Open a GitHub Issue](https://github.com/CaiusCodes/MechAssault-Xbox-PC-Recomp/issues) and attach the report's ZIP file.
 
-## Building from source
+Nothing is ever sent automatically.
 
-Visual Studio 2022 or later with the C++ workload, LLVM clang, CMake and Ninja. Extract your Rev 1 game to
-`game_files\MechAssault (USA) (En,Fr,De) (Rev 1)\` (git-ignored), then:
+## Building from Source
 
-```
-scripts\b.bat cmake --preset release -B out/build/rev1 "-DXBE_ASSETS_DIR=%CD%/game_files/MechAssault (USA) (En,Fr,De) (Rev 1)" -DXBE_GENERATED_DIR=%CD%/generated-rev1
-scripts\b.bat cmake --build out/build/rev1 -j 6
-release.bat rev1
-```
-
-`out\build\rev1` needs an `assets` junction to the same game folder to run from there. `release.bat rev1` makes the
-portable package, which holds no game code: the player's PC builds it from their own copy on the first start. Each
-GitHub release attaches that package as `MechAssault.zip`, which the updater looks for.
-
-More in `docs/`: `REV1.md` (the supported release and how the port moved to it), `PORTING_PROGRESS.md`,
-`MECHASSAULT_TECHNICAL_ANALYSIS.md`, `GRAPHICS_AND_PERFORMANCE.md`, `KNOWN_ISSUES.md` and `testing.md`.
+You need Visual Studio 2022 or later with the C++ workload (including clang), CMake, Ninja and your own Rev 1 copy of the game, extracted into the `game_files` folder. Build with the commands in [docs/REV1.md](docs/REV1.md), then run `release.bat rev1` to make the portable package, which contains no game code. More notes are in the [docs](docs) folder.
 
 ## Development & Credits
 
 This project builds upon the work of:
 
-- [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) by TGP482 – Original Xbox static recompilation
-  toolkit (vendored in `sdk/`).
-- The Breakdown Xbox PC port – Shared runtime work (setup, renderer, input, updater).
+- [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) by TGP482 – Original Xbox static recompilation toolkit.
+- The Breakdown Xbox PC port – Shared setup, graphics, input and updater work.
 - [SMAA](https://github.com/iryoku/smaa) by Jorge Jimenez et al. – Anti-aliasing.
-- AMD FidelityFX Super Resolution 1 – The upscaling algorithm, reimplemented.
+- AMD FidelityFX Super Resolution 1 – Upscaling.
+- [Dear ImGui](https://github.com/ocornut/imgui) and [SDL](https://github.com/libsdl-org/SDL) – Settings menu and controller support.
 
-The project's own game-port code is released under [The Unlicense](LICENSE). The SDK and third-party dependencies
-retain their respective licences (`sdk/LICENSE`, `sdk/THIRD_PARTY.txt`).
+The project's own game-port code is released under [The Unlicense](LICENSE), and the SDK and third-party dependencies retain their respective licences (see [sdk/LICENSE](sdk/LICENSE) and [sdk/THIRD_PARTY.txt](sdk/THIRD_PARTY.txt)).
 
 ---
 
-*MechAssault, BattleTech, Xbox and Microsoft are trademarks or property of their respective owners. This is an
-independent fan project and is not affiliated with or endorsed by the rights holders.*
+*MechAssault, BattleTech, Xbox and Microsoft are trademarks or property of their respective owners. This is an independent fan project and is not affiliated with or endorsed by the rights holders.*
